@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(npm run build:*)",
+      "Bash(cmd /c:*)",
+      "Bash(powershell:*)",
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(dir:*)",
+      "Bash(test:*)",
+      "Bash(npx react-native:*)"
+    ],
+    "deny": []
+  }
+}

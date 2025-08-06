@@ -1,0 +1,39 @@
+{
+  "name": "stock-audit-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.15.3",
+    "@mui/material": "^5.15.3",
+    "@mui/x-charts": "^6.19.1",
+    "@mui/x-data-grid": "^6.19.1",
+    "@mui/x-date-pickers": "^6.19.1",
+    "@supabase/auth-helpers-nextjs": "^0.8.7",
+    "@supabase/supabase-js": "^2.38.5",
+    "@types/papaparse": "^5.3.14",
+    "dayjs": "^1.11.10",
+    "next": "14.0.4",
+    "papaparse": "^5.4.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.10.3",
+    "swr": "^2.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "14.0.4",
+    "typescript": "^5.3.3"
+  }
+}
