@@ -1,5 +1,5 @@
 import React from 'react';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSelector } from 'react-redux';
 
 import { RootState } from '../store';
@@ -27,7 +27,7 @@ export type MainStackParamList = {
   SyncStatus: undefined;
 };
 
-const Stack = createStackNavigator<MainStackParamList>();
+const Stack = createNativeStackNavigator<MainStackParamList>();
 
 const MainNavigator: React.FC = () => {
   const { selectedLocation } = useSelector((state: RootState) => state.app);
