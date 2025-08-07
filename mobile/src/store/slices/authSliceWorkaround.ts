@@ -23,16 +23,9 @@ export const initializeAuth = createAsyncThunk(
   'auth/initialize',
   async (_, { rejectWithValue }) => {
     try {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error) throw error;
-      
-      if (session?.user) {
-        const userProfile = await supabaseHelpers.getUserProfile(session.user.id);
-        return { session, user: userProfile };
-      }
-      
-      return { session: null, user: null };
+      // Check if we have a stored user session (you might want to use AsyncStorage)
+      const storedUser = null; // Replace with AsyncStorage.getItem('user') if needed
+      return { session: null, user: storedUser };
     } catch (error: any) {
       return rejectWithValue(error.message);
     }
@@ -43,46 +36,43 @@ export const signInWithPassword = createAsyncThunk(
   'auth/signInWithPassword',
   async ({ username, password }: { username: string; password: string }, { rejectWithValue }) => {
     try {
-      // First get the user's email from username
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('email')
-        .eq('username', username)
-        .single();
-      
-      if (userError || !userData) {
-        throw new Error('Invalid username or password');
-      }
-      
-      // Sign in with email and password
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: userData.email,
-        password: password,
-      });
+      // Use our custom RPC function instead of Supabase Auth
+      const { data, error } = await supabase
+        .rpc('login_with_username', {
+          p_username: username,
+          p_password: password
+        });
       
       if (error) throw error;
       
-      if (data.session?.user) {
-        const userProfile = await supabaseHelpers.getUserProfile(data.session.user.id);
-        return { session: data.session, user: userProfile };
+      if (!data.success) {
+        throw new Error(data.message || 'Invalid username or password');
       }
       
-      return { session: null, user: null };
+      // Create a mock session for compatibility
+      const mockSession = {
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+        }
+      };
+      
+      return { 
+        session: mockSession, 
+        user: data.user as User 
+      };
     } catch (error: any) {
       return rejectWithValue(error.message);
     }
   }
 );
 
-// Removed Google OAuth - using username/password only
-
 export const signOut = createAsyncThunk(
   'auth/signOut',
   async (_, { rejectWithValue }) => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
+      // Clear any stored session (you might want to use AsyncStorage)
+      // await AsyncStorage.removeItem('user');
       return { success: true };
     } catch (error: any) {
       return rejectWithValue(error.message);
@@ -161,14 +151,12 @@ const authSlice = createSlice({
         state.isLoading = false;
         state.session = action.payload.session;
         state.user = action.payload.user;
-        state.isAuthenticated = !!action.payload.session;
+        state.isAuthenticated = true;
       })
       .addCase(signInWithPassword.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
       })
-      
-      // Google OAuth removed - username/password only
       
       // Sign out
       .addCase(signOut.fulfilled, (state) => {

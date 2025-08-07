@@ -3,8 +3,14 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Config from 'react-native-config';
 
-const supabaseUrl = Config.SUPABASE_URL || '';
-const supabaseAnonKey = Config.SUPABASE_ANON_KEY || '';
+const supabaseUrl = Config?.SUPABASE_URL || 'https://lgiljudekiobysjsuepo.supabase.co';
+const supabaseAnonKey = Config?.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxnaWxqdWRla2lvYnlzanN1ZXBvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQzMDMxODYsImV4cCI6MjA2OTg3OTE4Nn0.kFv_SZ71_ryWvlowbvBb9sWc2wPXmyLChZbijMfgQZM';
+
+console.log('Supabase Config:', { 
+  hasUrl: !!supabaseUrl, 
+  hasKey: !!supabaseAnonKey,
+  configObject: Config
+});
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');

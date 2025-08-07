@@ -26,6 +26,7 @@ export default async function DashboardPage() {
     .eq('id', session.user.id)
     .single()
 
+  // Allow supervisors and superusers only (block scanners)
   if (!userProfile || userProfile.role === 'scanner') {
     redirect('/auth/login?error=insufficient_permissions')
   }

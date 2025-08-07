@@ -11,31 +11,62 @@ import {
   Container,
   Alert,
   CircularProgress,
+  TextField,
+  InputAdornment,
+  IconButton,
 } from '@mui/material'
-import { Google as GoogleIcon } from '@mui/icons-material'
+import { Visibility, VisibilityOff, Login as LoginIcon } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
-  const handleGoogleSignIn = async () => {
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!username.trim() || !password.trim()) {
+      setError('Please enter both username and password')
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
 
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+      // First get the user's email from username
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('email, role')
+        .eq('username', username)
+        .single()
+      
+      if (userError || !userData) {
+        throw new Error('Invalid username or password')
+      }
+
+      // Check if user has dashboard access (supervisor or superuser only)
+      if (userData.role === 'scanner') {
+        throw new Error('Access denied. Scanners should use the mobile app.')
+      }
+
+      // Sign in with email and password
+      const { error } = await supabase.auth.signInWithPassword({
+        email: userData.email,
+        password: password,
       })
 
       if (error) {
-        throw error
+        throw new Error('Invalid username or password')
       }
+
+      // Redirect to dashboard on success
+      router.push('/dashboard')
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -70,26 +101,63 @@ export default function LoginPage() {
               </Alert>
             )}
 
-            <Button
-              fullWidth
-              variant="contained"
-              size="large"
-              startIcon={loading ? <CircularProgress size={20} /> : <GoogleIcon />}
-              onClick={handleGoogleSignIn}
-              disabled={loading}
-              sx={{ py: 1.5 }}
-            >
-              {loading ? 'Signing in...' : 'Sign in with Google'}
-            </Button>
+            <Box component="form" onSubmit={handleSignIn} sx={{ mt: 1 }}>
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                label="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                autoFocus
+                disabled={loading}
+              />
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                label="Password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                disabled={loading}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowPassword(!showPassword)}
+                        edge="end"
+                        disabled={loading}
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                size="large"
+                startIcon={loading ? <CircularProgress size={20} /> : <LoginIcon />}
+                disabled={loading || !username.trim() || !password.trim()}
+                sx={{ mt: 3, mb: 2, py: 1.5 }}
+              >
+                {loading ? 'Signing in...' : 'Sign In'}
+              </Button>
+            </Box>
 
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ mt: 3, textAlign: 'center' }}
             >
-              Only supervisors and administrators can access the dashboard.
+              Supervisors and administrators only.
               <br />
-              Scanners should use the mobile app.
+              Contact your administrator for login credentials.
             </Typography>
           </CardContent>
         </Card>

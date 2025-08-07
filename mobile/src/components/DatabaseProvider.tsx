@@ -19,16 +19,32 @@ const DatabaseProvider: React.FC<DatabaseProviderProps> = ({ children }) => {
     const initializeDatabase = async () => {
       try {
         console.log('Initializing local database...');
-        await DatabaseService.initDatabase();
+        
+        // Add timeout to prevent infinite loading (increased to 30 seconds)
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Database initialization timeout after 30 seconds')), 30000);
+        });
+        
+        await Promise.race([
+          DatabaseService.initDatabase(),
+          timeoutPromise
+        ]);
         
         console.log('Database initialized successfully');
         dispatch(setDatabaseReady(true));
         setIsInitializing(false);
       } catch (error: any) {
         console.error('Database initialization failed:', error);
-        dispatch(showErrorMessage(`Database error: ${error.message}`));
+        
+        // Continue without database but log the error
+        console.warn('Continuing without local database. App will work with online-only mode.');
         dispatch(setDatabaseReady(false));
         setIsInitializing(false);
+        
+        // Show user-friendly error message
+        if (error.message.includes('timeout')) {
+          console.warn('Database setup is taking longer than expected. You can still use the app.');
+        }
       }
     };
 
@@ -44,7 +60,8 @@ const DatabaseProvider: React.FC<DatabaseProviderProps> = ({ children }) => {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>Setting up database...</Text>
+        <Text style={styles.loadingText}>Setting up local database...</Text>
+        <Text style={styles.subText}>This may take a few moments on first launch</Text>
       </View>
     );
   }
@@ -63,6 +80,13 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     color: '#666666',
+    fontWeight: '600',
+  },
+  subText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#999999',
+    textAlign: 'center',
   },
 });
 

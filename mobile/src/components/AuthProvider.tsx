@@ -4,8 +4,8 @@ import { View, StyleSheet } from 'react-native';
 import { ActivityIndicator, Text } from 'react-native-paper';
 
 import { supabase } from '../services/supabase';
-import { initializeAuth, setSession, setUser } from '../store/slices/authSlice';
-import { showErrorMessage } from '../store/slices/appSlice';
+import { initializeAuth, setSession, setUser, setLoading } from '../store/slices/authSliceWorkaround';
+import { showErrorMessage, setInitialized } from '../store/slices/appSlice';
 import { RootState, AppDispatch } from '../store';
 
 interface AuthProviderProps {
@@ -18,59 +18,18 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     // Initialize auth state
-    dispatch(initializeAuth());
+    dispatch(initializeAuth())
+      .unwrap()
+      .then(() => {
+        dispatch(setInitialized(true));
+      })
+      .catch((error) => {
+        console.error('Auth initialization failed:', error);
+        dispatch(setInitialized(true)); // Continue anyway
+      });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.id);
-        
-        dispatch(setSession(session));
-        
-        if (session?.user) {
-          try {
-            // Get user profile from database
-            const { data: userProfile, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
-            
-            if (error && error.code !== 'PGRST116') {
-              throw error;
-            }
-            
-            // If user profile doesn't exist, create it
-            if (!userProfile) {
-              const { data: newProfile, error: createError } = await supabase
-                .from('users')
-                .insert({
-                  id: session.user.id,
-                  email: session.user.email!,
-                  full_name: session.user.user_metadata?.full_name || session.user.email,
-                  role: 'scanner', // Default role
-                })
-                .select()
-                .single();
-              
-              if (createError) throw createError;
-              dispatch(setUser(newProfile));
-            } else {
-              dispatch(setUser(userProfile));
-            }
-          } catch (error: any) {
-            console.error('Error handling auth state change:', error);
-            dispatch(showErrorMessage(`Authentication error: ${error.message}`));
-          }
-        } else {
-          dispatch(setUser(null));
-        }
-      }
-    );
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    // Since we're not using Supabase Auth, we don't need auth state change listener
+    // The auth state is managed through our custom login flow
   }, [dispatch]);
 
   if (isLoading) {

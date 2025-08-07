@@ -2,14 +2,9 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import LoginScreen from '../screens/auth/LoginScreen';
-import OAuthCallbackScreen from '../screens/auth/OAuthCallbackScreen';
 
 export type AuthStackParamList = {
   Login: undefined;
-  OAuthCallback: { 
-    token?: string; 
-    error?: string; 
-  };
 };
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
@@ -26,13 +21,6 @@ const AuthNavigator: React.FC = () => {
       <Stack.Screen 
         name="Login" 
         component={LoginScreen}
-        options={{
-          animationEnabled: false,
-        }}
-      />
-      <Stack.Screen 
-        name="OAuthCallback" 
-        component={OAuthCallbackScreen}
         options={{
           animationEnabled: false,
         }}

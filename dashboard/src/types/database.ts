@@ -43,11 +43,13 @@ export interface Database {
         Row: {
           id: string
           email: string
+          username: string
           full_name: string | null
-          role: string
+          role: 'scanner' | 'supervisor' | 'superuser'
           location_ids: number[]
           device_id: string | null
           active: boolean
+          has_password: boolean
           last_login: string | null
           created_at: string
           updated_at: string
@@ -55,11 +57,13 @@ export interface Database {
         Insert: {
           id: string
           email: string
+          username: string
           full_name?: string | null
-          role?: string
+          role?: 'scanner' | 'supervisor' | 'superuser'
           location_ids?: number[]
           device_id?: string | null
           active?: boolean
+          has_password?: boolean
           last_login?: string | null
           created_at?: string
           updated_at?: string
@@ -67,11 +71,13 @@ export interface Database {
         Update: {
           id?: string
           email?: string
+          username?: string
           full_name?: string | null
-          role?: string
+          role?: 'scanner' | 'supervisor' | 'superuser'
           location_ids?: number[]
           device_id?: string | null
           active?: boolean
+          has_password?: boolean
           last_login?: string | null
           created_at?: string
           updated_at?: string

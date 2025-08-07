@@ -31,11 +31,19 @@ const initialState: SyncState = {
   syncHistory: [],
 };
 
+// Store the unsubscribe function globally to avoid Redux serialization issues
+let networkUnsubscribe: (() => void) | null = null;
+
 // Async thunks
 export const initializeNetworkListener = createAsyncThunk(
   'sync/initializeNetworkListener',
   async (_, { dispatch }) => {
-    const unsubscribe = NetInfo.addEventListener(state => {
+    // Clean up any existing listener
+    if (networkUnsubscribe) {
+      networkUnsubscribe();
+    }
+
+    networkUnsubscribe = NetInfo.addEventListener(state => {
       dispatch(setOnlineStatus(state.isConnected || false));
       
       // Auto-sync when coming back online
@@ -45,10 +53,15 @@ export const initializeNetworkListener = createAsyncThunk(
     });
 
     // Get initial network state
-    const initialState = await NetInfo.fetch();
-    dispatch(setOnlineStatus(initialState.isConnected || false));
+    const initialNetworkState = await NetInfo.fetch();
+    dispatch(setOnlineStatus(initialNetworkState.isConnected || false));
 
-    return unsubscribe;
+    // Return serializable data instead of the function
+    return {
+      success: true,
+      isConnected: initialNetworkState.isConnected || false,
+      timestamp: new Date().toISOString(),
+    };
   }
 );
 
@@ -128,6 +141,13 @@ export const cleanupOldSyncData = createAsyncThunk(
     }
   }
 );
+
+export const cleanupNetworkListener = () => {
+  if (networkUnsubscribe) {
+    networkUnsubscribe();
+    networkUnsubscribe = null;
+  }
+};
 
 // Helper function to process individual sync items
 async function processSyncItem(item: SyncQueueItem): Promise<void> {
@@ -218,6 +238,15 @@ const syncSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // Initialize network listener
+      .addCase(initializeNetworkListener.fulfilled, (state, action) => {
+        // Network listener initialized successfully
+        state.isOnline = action.payload.isConnected;
+      })
+      .addCase(initializeNetworkListener.rejected, (state, action) => {
+        state.error = 'Failed to initialize network listener';
+      })
+      
       // Sync all pending data
       .addCase(syncAllPendingData.pending, (state) => {
         state.isSyncing = true;
@@ -286,5 +315,7 @@ export const {
   clearError,
   addSyncHistoryEntry,
 } = syncSlice.actions;
+
+export { cleanupNetworkListener };
 
 export default syncSlice.reducer;

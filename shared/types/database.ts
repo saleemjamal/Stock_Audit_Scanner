@@ -15,11 +15,13 @@ export interface Location {
 export interface User {
   id: string; // UUID
   email: string;
+  username: string;
   full_name?: string;
-  role: 'scanner' | 'supervisor' | 'admin';
+  role: 'scanner' | 'supervisor' | 'superuser';
   location_ids: number[];
   device_id?: string;
   active: boolean;
+  has_password: boolean;
   last_login?: string;
   created_at: string;
   updated_at: string;

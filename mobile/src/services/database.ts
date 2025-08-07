@@ -33,96 +33,143 @@ class DatabaseService {
   private async createTables(): Promise<void> {
     if (!this.db) throw new Error('Database not initialized');
 
-    const createTablesSQL = [
-      // Local scans table (mirrors server structure)
-      `CREATE TABLE IF NOT EXISTS local_scans (
-        id TEXT PRIMARY KEY,
-        barcode TEXT NOT NULL,
-        rack_id TEXT NOT NULL,
-        audit_session_id TEXT NOT NULL,
-        scanner_id TEXT NOT NULL,
-        device_id TEXT,
-        quantity INTEGER DEFAULT 1,
-        is_recount BOOLEAN DEFAULT 0,
-        recount_of TEXT,
-        manual_entry BOOLEAN DEFAULT 0,
-        notes TEXT,
-        synced BOOLEAN DEFAULT 0,
-        sync_error TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );`,
+    console.log('Creating database tables...');
 
-      // Local racks cache
-      `CREATE TABLE IF NOT EXISTS local_racks (
-        id TEXT PRIMARY KEY,
-        audit_session_id TEXT NOT NULL,
-        location_id INTEGER NOT NULL,
-        rack_number TEXT NOT NULL,
-        shelf_number TEXT,
-        status TEXT NOT NULL,
-        scanner_id TEXT,
-        assigned_at TEXT,
-        ready_for_approval BOOLEAN DEFAULT 0,
-        total_scans INTEGER DEFAULT 0,
-        synced BOOLEAN DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );`,
+    try {
+      // Create tables one by one with progress logging
+      await this.createScansTable();
+      console.log('✅ Scans table created');
 
-      // Sync queue for offline operations
-      `CREATE TABLE IF NOT EXISTS sync_queue (
-        id TEXT PRIMARY KEY,
-        device_id TEXT NOT NULL,
-        data_type TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
-        retry_count INTEGER DEFAULT 0,
-        error_message TEXT,
-        created_at TEXT NOT NULL,
-        processed_at TEXT
-      );`,
+      await this.createRacksTable();
+      console.log('✅ Racks table created');
 
-      // Device info
-      `CREATE TABLE IF NOT EXISTS device_info (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        device_id TEXT UNIQUE NOT NULL,
-        device_name TEXT,
-        user_id TEXT,
-        last_sync TEXT,
-        total_scans INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );`,
+      await this.createSyncQueueTable();
+      console.log('✅ Sync queue table created');
 
-      // User preferences
-      `CREATE TABLE IF NOT EXISTS user_preferences (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT UNIQUE NOT NULL,
-        scanner_config TEXT,
-        ui_preferences TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );`,
+      await this.createDeviceInfoTable();
+      console.log('✅ Device info table created');
+
+      await this.createUserPreferencesTable();
+      console.log('✅ User preferences table created');
+
+      // Create essential indexes only
+      await this.createEssentialIndexes();
+      console.log('✅ Essential indexes created');
+
+      console.log('Database schema creation completed');
+    } catch (error) {
+      console.error('Error creating database schema:', error);
+      throw error;
+    }
+  }
+
+  private async createScansTable(): Promise<void> {
+    const sql = `CREATE TABLE IF NOT EXISTS local_scans (
+      id TEXT PRIMARY KEY,
+      barcode TEXT NOT NULL,
+      rack_id TEXT NOT NULL,
+      audit_session_id TEXT NOT NULL,
+      scanner_id TEXT NOT NULL,
+      device_id TEXT,
+      quantity INTEGER DEFAULT 1,
+      is_recount BOOLEAN DEFAULT 0,
+      recount_of TEXT,
+      manual_entry BOOLEAN DEFAULT 0,
+      notes TEXT,
+      synced BOOLEAN DEFAULT 0,
+      sync_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );`;
+    await this.db!.executeSql(sql);
+  }
+
+  private async createRacksTable(): Promise<void> {
+    const sql = `CREATE TABLE IF NOT EXISTS local_racks (
+      id TEXT PRIMARY KEY,
+      audit_session_id TEXT NOT NULL,
+      location_id INTEGER NOT NULL,
+      rack_number TEXT NOT NULL,
+      shelf_number TEXT,
+      status TEXT NOT NULL,
+      scanner_id TEXT,
+      assigned_at TEXT,
+      ready_for_approval BOOLEAN DEFAULT 0,
+      total_scans INTEGER DEFAULT 0,
+      synced BOOLEAN DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );`;
+    await this.db!.executeSql(sql);
+  }
+
+  private async createSyncQueueTable(): Promise<void> {
+    const sql = `CREATE TABLE IF NOT EXISTS sync_queue (
+      id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      data_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      retry_count INTEGER DEFAULT 0,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      processed_at TEXT
+    );`;
+    await this.db!.executeSql(sql);
+  }
+
+  private async createDeviceInfoTable(): Promise<void> {
+    const sql = `CREATE TABLE IF NOT EXISTS device_info (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT UNIQUE NOT NULL,
+      device_name TEXT,
+      user_id TEXT,
+      last_sync TEXT,
+      total_scans INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );`;
+    await this.db!.executeSql(sql);
+  }
+
+  private async createUserPreferencesTable(): Promise<void> {
+    const sql = `CREATE TABLE IF NOT EXISTS user_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT UNIQUE NOT NULL,
+      scanner_config TEXT,
+      ui_preferences TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );`;
+    await this.db!.executeSql(sql);
+  }
+
+  private async createEssentialIndexes(): Promise<void> {
+    // Only create the most essential indexes for performance
+    const essentialIndexes = [
+      'CREATE INDEX IF NOT EXISTS idx_local_scans_rack ON local_scans(rack_id);',
+      'CREATE INDEX IF NOT EXISTS idx_local_scans_synced ON local_scans(synced);',
+      'CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);',
     ];
 
-    // Create indexes
-    const createIndexesSQL = [
-      'CREATE INDEX IF NOT EXISTS idx_local_scans_rack ON local_scans(rack_id);',
+    for (const sql of essentialIndexes) {
+      await this.db!.executeSql(sql);
+    }
+  }
+
+  // Method to create additional indexes later if needed
+  async createAdditionalIndexes(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const additionalIndexes = [
       'CREATE INDEX IF NOT EXISTS idx_local_scans_barcode ON local_scans(barcode);',
-      'CREATE INDEX IF NOT EXISTS idx_local_scans_synced ON local_scans(synced);',
       'CREATE INDEX IF NOT EXISTS idx_local_scans_created ON local_scans(created_at);',
       'CREATE INDEX IF NOT EXISTS idx_local_racks_session ON local_racks(audit_session_id);',
       'CREATE INDEX IF NOT EXISTS idx_local_racks_status ON local_racks(status);',
-      'CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);',
       'CREATE INDEX IF NOT EXISTS idx_sync_queue_device ON sync_queue(device_id);',
     ];
 
-    for (const sql of createTablesSQL) {
-      await this.db.executeSql(sql);
-    }
-
-    for (const sql of createIndexesSQL) {
+    for (const sql of additionalIndexes) {
       await this.db.executeSql(sql);
     }
   }

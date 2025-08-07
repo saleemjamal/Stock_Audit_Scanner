@@ -12,82 +12,41 @@ import {
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { signInWithEmail, signInWithGoogle, clearError } from '../../store/slices/authSlice';
+import { signInWithPassword, clearError } from '../../store/slices/authSliceWorkaround';
 import { RootState, AppDispatch } from '../../store';
-import { isValidEmail } from '../../../../shared/utils/helpers';
+import { isValidUsername } from '../../../../shared/utils/helpers';
 
 const LoginScreen: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const { isLoading, error } = useSelector((state: RootState) => state.auth);
   
-  const [email, setEmail] = useState('');
-  const [emailSent, setEmailSent] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  const handleEmailLogin = async () => {
-    if (!isValidEmail(email)) {
+  const handleLogin = async () => {
+    if (!isValidUsername(username) || password.length < 6) {
       return;
     }
 
     dispatch(clearError());
     
     try {
-      await dispatch(signInWithEmail(email)).unwrap();
-      setEmailSent(true);
+      await dispatch(signInWithPassword({ username, password })).unwrap();
+      // Navigation handled by auth state change
     } catch (error) {
       // Error is handled by the slice
     }
   };
 
-  const handleGoogleLogin = async () => {
-    dispatch(clearError());
-    
-    try {
-      await dispatch(signInWithGoogle()).unwrap();
-    } catch (error) {
-      // Error is handled by the slice
-    }
-  };
-
-  const resetEmailForm = () => {
-    setEmailSent(false);
-    setEmail('');
+  const resetForm = () => {
+    setUsername('');
+    setPassword('');
+    setShowPassword(false);
     dispatch(clearError());
   };
 
-  if (emailSent) {
-    return (
-      <KeyboardAvoidingView 
-        style={styles.container} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <Card style={styles.card}>
-            <Card.Content style={styles.cardContent}>
-              <Title style={styles.title}>Check Your Email</Title>
-              
-              <Paragraph style={styles.subtitle}>
-                We've sent a login link to:
-              </Paragraph>
-              
-              <Text style={styles.emailText}>{email}</Text>
-              
-              <Paragraph style={styles.instructions}>
-                Tap the link in your email to sign in to the Stock Audit Scanner app.
-              </Paragraph>
-              
-              <Button
-                mode="outlined"
-                onPress={resetEmailForm}
-                style={styles.backButton}
-              >
-                Back to Login
-              </Button>
-            </Card.Content>
-          </Card>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    );
-  }
+
 
   return (
     <KeyboardAvoidingView 
@@ -104,47 +63,57 @@ const LoginScreen: React.FC = () => {
 
             <View style={styles.form}>
               <TextInput
-                label="Email Address"
-                value={email}
-                onChangeText={setEmail}
+                label="Username"
+                value={username}
+                onChangeText={setUsername}
                 mode="outlined"
-                keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.input}
-                error={email.length > 0 && !isValidEmail(email)}
+                error={username.length > 0 && !isValidUsername(username)}
               />
               
               <HelperText 
                 type="error" 
-                visible={email.length > 0 && !isValidEmail(email)}
+                visible={username.length > 0 && !isValidUsername(username)}
               >
-                Please enter a valid email address
+                Username must be 3-20 characters (letters, numbers, - _)
+              </HelperText>
+
+              <TextInput
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                mode="outlined"
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.input}
+                error={password.length > 0 && password.length < 6}
+                right={
+                  <TextInput.Icon
+                    icon={showPassword ? 'eye-off' : 'eye'}
+                    onPress={() => setShowPassword(!showPassword)}
+                  />
+                }
+              />
+              
+              <HelperText 
+                type="error" 
+                visible={password.length > 0 && password.length < 6}
+              >
+                Password must be at least 6 characters
               </HelperText>
 
               <Button
                 mode="contained"
-                onPress={handleEmailLogin}
+                onPress={handleLogin}
                 loading={isLoading}
-                disabled={!isValidEmail(email) || isLoading}
+                disabled={!isValidUsername(username) || password.length < 6 || isLoading}
                 style={styles.loginButton}
                 contentStyle={styles.buttonContent}
               >
-                Send Login Link
-              </Button>
-
-              <Divider style={styles.divider} />
-
-              <Button
-                mode="outlined"
-                onPress={handleGoogleLogin}
-                loading={isLoading}
-                disabled={isLoading}
-                style={styles.googleButton}
-                contentStyle={styles.buttonContent}
-                icon="google"
-              >
-                Sign in with Google
+                Sign In
               </Button>
 
               {error && (
@@ -158,10 +127,10 @@ const LoginScreen: React.FC = () => {
 
         <View style={styles.footer}>
           <Paragraph style={styles.footerText}>
-            For supervisors and admins: Use Google sign-in
+            Contact your supervisor for login credentials
           </Paragraph>
           <Paragraph style={styles.footerText}>
-            For scanners: Use email login
+            Scanner • Supervisor • Superuser
           </Paragraph>
         </View>
       </ScrollView>
@@ -206,10 +175,6 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: 16,
-    marginBottom: 24,
-  },
-  googleButton: {
-    marginTop: 8,
   },
   buttonContent: {
     height: 48,
@@ -220,22 +185,6 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 16,
     textAlign: 'center',
-  },
-  emailText: {
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1976d2',
-    marginVertical: 16,
-  },
-  instructions: {
-    textAlign: 'center',
-    marginBottom: 24,
-    color: '#666666',
-    lineHeight: 20,
-  },
-  backButton: {
-    marginTop: 16,
   },
   footer: {
     marginTop: 32,
