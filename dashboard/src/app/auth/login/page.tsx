@@ -18,6 +18,17 @@ import {
 import { Visibility, VisibilityOff, Login as LoginIcon } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 
+// Username to email mapping
+const USERNAME_EMAIL_MAP: Record<string, string> = {
+  'saleem': 'saleem@poppatjamals.com',
+  'supervisor1': 'supervisor1@test.com',
+  'scanner1': 'scanner1@test.com',
+};
+
+const getUserEmail = (username: string): string => {
+  return USERNAME_EMAIL_MAP[username] || `${username}@poppatjamals.com`;
+};
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,31 +50,40 @@ export default function LoginPage() {
       setLoading(true)
       setError(null)
 
-      // Use our custom RPC function (same as mobile app)
-      const { data, error } = await supabase
-        .rpc('login_with_username', {
-          p_username: username,
-          p_password: password
-        })
-      
+      // Convert username to email
+      const email = getUserEmail(username);
+
+      // Sign in with Supabase Auth
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
       if (error) {
         throw new Error('Invalid username or password')
       }
 
-      if (!data.success) {
-        throw new Error(data.message || 'Invalid username or password')
-      }
+      if (data.session?.user) {
+        // Get user profile to check role
+        const { data: userProfile, error: profileError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', data.session.user.id)
+          .single()
 
-      // Check if user has dashboard access (supervisor or superuser only)
-      if (data.user.role === 'scanner') {
-        throw new Error('Access denied. Scanners should use the mobile app.')
-      }
+        if (profileError) {
+          throw new Error('Unable to load user profile')
+        }
 
-      // Store user data in session/localStorage for dashboard use
-      localStorage.setItem('currentUser', JSON.stringify(data.user))
-      
-      // Redirect to dashboard on success
-      router.push('/dashboard')
+        // Check if user has dashboard access (supervisor or superuser only)
+        if (userProfile.role === 'scanner') {
+          await supabase.auth.signOut() // Sign them out
+          throw new Error('Access denied. Scanners should use the mobile app.')
+        }
+
+        // Redirect to dashboard on success
+        router.push('/dashboard')
+      }
     } catch (error: any) {
       setError(error.message)
     } finally {

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { Box, Grid, Typography, Card, CardContent, CircularProgress } from '@mui/material'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
 import AuditOverview from '@/components/AuditOverview'
 import RecentActivity from '@/components/RecentActivity'
@@ -13,34 +14,51 @@ export default function DashboardPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const supabase = createClient()
 
   useEffect(() => {
-    // Check if user is logged in using our custom auth
-    const userData = localStorage.getItem('currentUser')
-    
-    if (!userData) {
-      router.push('/auth/login')
-      return
-    }
+    checkAuth()
+  }, [])
 
+  const checkAuth = async () => {
     try {
-      const user = JSON.parse(userData)
+      const { data: { session }, error } = await supabase.auth.getSession()
       
+      if (error) throw error
+      
+      if (!session) {
+        router.push('/auth/login')
+        return
+      }
+
+      // Get user profile
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+
+      if (profileError) {
+        console.error('Error loading user profile:', profileError)
+        router.push('/auth/login')
+        return
+      }
+
       // Allow supervisors and superusers only (block scanners)
-      if (user.role === 'scanner') {
+      if (userProfile.role === 'scanner') {
+        await supabase.auth.signOut()
         router.push('/auth/login?error=insufficient_permissions')
         return
       }
 
-      setCurrentUser(user)
+      setCurrentUser(userProfile)
     } catch (error) {
-      console.error('Error parsing user data:', error)
+      console.error('Auth check error:', error)
       router.push('/auth/login')
-      return
     } finally {
       setIsLoading(false)
     }
-  }, [router])
+  }
 
   if (isLoading) {
     return (

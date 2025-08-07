@@ -12,7 +12,7 @@ import {
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { signInWithPassword, clearError } from '../../store/slices/authSliceWorkaround';
+import { signInWithPassword, clearError } from '../../store/slices/authSlice';
 import { RootState, AppDispatch } from '../../store';
 import { isValidUsername } from '../../../../shared/utils/helpers';
 

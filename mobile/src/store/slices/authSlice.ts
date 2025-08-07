@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { supabase, supabaseHelpers } from '../../services/supabase';
+import { getUserEmail } from '../../utils/authHelpers';
 import { User } from '../../../../shared/types';
 
 interface AuthState {
@@ -43,31 +44,31 @@ export const signInWithPassword = createAsyncThunk(
   'auth/signInWithPassword',
   async ({ username, password }: { username: string; password: string }, { rejectWithValue }) => {
     try {
-      // First get the user's email from username
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('email')
-        .eq('username', username)
-        .single();
+      // Convert username to email using our mapping
+      const email = getUserEmail(username);
       
-      if (userError || !userData) {
-        throw new Error('Invalid username or password');
-      }
-      
-      // Sign in with email and password
+      // Sign in with Supabase Auth
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: userData.email,
-        password: password,
+        email,
+        password,
       });
       
       if (error) throw error;
       
       if (data.session?.user) {
-        const userProfile = await supabaseHelpers.getUserProfile(data.session.user.id);
+        // Get user profile from our users table
+        const { data: userProfile, error: profileError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', data.session.user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
         return { session: data.session, user: userProfile };
       }
       
-      return { session: null, user: null };
+      throw new Error('Login failed');
     } catch (error: any) {
       return rejectWithValue(error.message);
     }
