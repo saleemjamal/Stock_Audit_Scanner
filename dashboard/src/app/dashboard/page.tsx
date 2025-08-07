@@ -1,34 +1,57 @@
-import { Suspense } from 'react'
+'use client'
+
+import { Suspense, useEffect, useState } from 'react'
 import { Box, Grid, Typography, Card, CardContent, CircularProgress } from '@mui/material'
-import { createServerClient } from '@/lib/supabase'
-import { redirect } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import DashboardLayout from '@/components/DashboardLayout'
 import AuditOverview from '@/components/AuditOverview'
 import RecentActivity from '@/components/RecentActivity'
 import PendingApprovals from '@/components/PendingApprovals'
 import LocationStats from '@/components/LocationStats'
 
-export default async function DashboardPage() {
-  const supabase = await createServerClient()
-  
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+export default function DashboardPage() {
+  const router = useRouter()
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (!session) {
-    redirect('/auth/login')
+  useEffect(() => {
+    // Check if user is logged in using our custom auth
+    const userData = localStorage.getItem('currentUser')
+    
+    if (!userData) {
+      router.push('/auth/login')
+      return
+    }
+
+    try {
+      const user = JSON.parse(userData)
+      
+      // Allow supervisors and superusers only (block scanners)
+      if (user.role === 'scanner') {
+        router.push('/auth/login?error=insufficient_permissions')
+        return
+      }
+
+      setCurrentUser(user)
+    } catch (error) {
+      console.error('Error parsing user data:', error)
+      router.push('/auth/login')
+      return
+    } finally {
+      setIsLoading(false)
+    }
+  }, [router])
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    )
   }
 
-  // Get user profile to check role
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', session.user.id)
-    .single()
-
-  // Allow supervisors and superusers only (block scanners)
-  if (!userProfile || userProfile.role === 'scanner') {
-    redirect('/auth/login?error=insufficient_permissions')
+  if (!currentUser) {
+    return null // Will redirect in useEffect
   }
 
   return (

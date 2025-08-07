@@ -39,32 +39,29 @@ export default function LoginPage() {
       setLoading(true)
       setError(null)
 
-      // First get the user's email from username
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('email, role')
-        .eq('username', username)
-        .single()
+      // Use our custom RPC function (same as mobile app)
+      const { data, error } = await supabase
+        .rpc('login_with_username', {
+          p_username: username,
+          p_password: password
+        })
       
-      if (userError || !userData) {
-        throw new Error('Invalid username or password')
-      }
-
-      // Check if user has dashboard access (supervisor or superuser only)
-      if (userData.role === 'scanner') {
-        throw new Error('Access denied. Scanners should use the mobile app.')
-      }
-
-      // Sign in with email and password
-      const { error } = await supabase.auth.signInWithPassword({
-        email: userData.email,
-        password: password,
-      })
-
       if (error) {
         throw new Error('Invalid username or password')
       }
 
+      if (!data.success) {
+        throw new Error(data.message || 'Invalid username or password')
+      }
+
+      // Check if user has dashboard access (supervisor or superuser only)
+      if (data.user.role === 'scanner') {
+        throw new Error('Access denied. Scanners should use the mobile app.')
+      }
+
+      // Store user data in session/localStorage for dashboard use
+      localStorage.setItem('currentUser', JSON.stringify(data.user))
+      
       // Redirect to dashboard on success
       router.push('/dashboard')
     } catch (error: any) {

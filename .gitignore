@@ -125,5 +125,10 @@ supabase/.temp
 *.pem
 .vercel
 
+# Windows-specific files
+nul
+*/nul
+dashboard/nul
+
 # Temporary project (can be removed)
 mobile/tempProject/

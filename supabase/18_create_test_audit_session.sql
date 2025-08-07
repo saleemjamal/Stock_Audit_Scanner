@@ -2,24 +2,39 @@
 -- This script creates an active audit session with test racks for development
 -- Run this after creating locations and fixing user access
 
--- Create active audit session for Downtown Store
-INSERT INTO audit_sessions (location_id, total_rack_count, status, started_at, started_by)
-VALUES (
-  (SELECT id FROM locations WHERE name = 'Downtown Store'),
-  20,
-  'active',
-  NOW(),
-  (SELECT id FROM users WHERE username = 'saleem')
-);
+-- Step 1: Clean up existing data
+UPDATE audit_sessions SET status = 'completed' WHERE status = 'active';
+DELETE FROM racks;
 
--- Generate 20 test racks for the audit session
-INSERT INTO racks (audit_session_id, location_id, rack_number, status)
-SELECT 
-  (SELECT id FROM audit_sessions WHERE status = 'active' ORDER BY created_at DESC LIMIT 1),
-  (SELECT id FROM locations WHERE name = 'Downtown Store'),
-  'A1-' || generate_series,
-  'available'
-FROM generate_series(1, 20);
+-- Step 2: Get the required IDs first
+DO $$
+DECLARE
+    downtown_location_id INTEGER;
+    saleem_user_id UUID;
+    new_session_id UUID;
+BEGIN
+    -- Get location ID
+    SELECT id INTO downtown_location_id FROM locations WHERE name = 'Downtown Store';
+    
+    -- Get saleem's user ID  
+    SELECT id INTO saleem_user_id FROM users WHERE username = 'saleem';
+    
+    -- Create audit session
+    INSERT INTO audit_sessions (location_id, total_rack_count, status, started_at, started_by)
+    VALUES (downtown_location_id, 20, 'active', NOW(), saleem_user_id)
+    RETURNING id INTO new_session_id;
+    
+    -- Create racks
+    INSERT INTO racks (audit_session_id, location_id, rack_number, status)
+    SELECT 
+        new_session_id,
+        downtown_location_id,
+        'A1-' || generate_series,
+        'available'
+    FROM generate_series(1, 20);
+    
+    RAISE NOTICE 'Created audit session % with 20 racks', new_session_id;
+END $$;
 
 -- Verify the audit session setup
 SELECT 
