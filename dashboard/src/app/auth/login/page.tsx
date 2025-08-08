@@ -35,9 +35,9 @@ export default function LoginPage() {
     const urlParams = new URLSearchParams(window.location.search)
     const errorParam = urlParams.get('error')
     if (errorParam === 'user_not_in_system') {
-      setError('Your Google account is not authorized for this system. Please contact an administrator to be added.')
+      setError('Your Google account is not authorized for this system. Only pre-approved users can access the dashboard. Please contact a system administrator (saleem@poppatjamals.com) to be added to the authorized user list.')
     } else if (errorParam === 'insufficient_permissions') {
-      setError('Access denied. Scanners should use the mobile app.')
+      setError('Access denied. Scanners should use the mobile app only. Supervisors and superusers can access the dashboard.')
     }
     
     checkAuth()
@@ -83,15 +83,15 @@ export default function LoginPage() {
         .single()
 
       if (profileError) {
-        throw new Error(`User ${email} not found in system. Please contact an administrator.`)
+        throw new Error(`User ${email} not found in system. This email would be denied access - only pre-authorized users can sign in.`)
       }
 
       // Check role access
       if (userProfile.role === 'scanner') {
-        throw new Error('Access denied. Scanners should use the mobile app.')
+        throw new Error('This user has scanner role and would be denied dashboard access. Scanners should use the mobile app only.')
       }
 
-      setError(`Test user ${email} found with role: ${userProfile.role}. Use Google Sign-in above to authenticate.`)
+      setError(`✅ Test user ${email} found with role: ${userProfile.role}. This user would be granted dashboard access. Use Google Sign-in above to authenticate.`)
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -117,6 +117,9 @@ export default function LoginPage() {
               </Typography>
               <Typography variant="body1" color="text.secondary">
                 Sign in with Google to manage inventory audits
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
+                Only pre-authorized users can access this system
               </Typography>
             </Box>
 
@@ -192,9 +195,13 @@ export default function LoginPage() {
               color="text.secondary"
               sx={{ mt: 3, textAlign: 'center' }}
             >
-              Supervisors and administrators only.
+              <strong>Access Policy:</strong>
               <br />
-              Scanners should use the mobile app.
+              • Only pre-authorized users can sign in
+              <br />
+              • Supervisors and superusers can access dashboard
+              <br />
+              • Scanners should use mobile app only
             </Typography>
           </CardContent>
         </Card>

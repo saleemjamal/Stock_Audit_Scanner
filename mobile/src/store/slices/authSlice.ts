@@ -4,6 +4,13 @@ import { getUserEmail, getUsernameFromEmail } from '../../utils/authHelpers';
 import { googleSignIn } from '../../services/googleSignIn';
 import { User } from '../../../../shared/types';
 
+// AUTHENTICATION SECURITY MODEL:
+// - Uses Google OAuth for authentication
+// - Implements WHITELISTING: only pre-authorized users can access system
+// - Users must be pre-added to 'users' table by superuser before they can sign in
+// - Unauthorized Google accounts are immediately blocked with clear error message
+// - No auto-user creation - maintains strict access control
+
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
@@ -157,42 +164,17 @@ export const signInWithGoogle = createAsyncThunk(
         
         if (profileError) {
           if (profileError.code === 'PGRST116') {
-            // User doesn't exist in our database yet - determine appropriate role
-            console.log('🔐 GOOGLE_AUTH: Creating new user profile for:', data.session.user.email);
+            // User doesn't exist in our database - block access (whitelisting)
+            console.log('🔐 GOOGLE_AUTH: User not found in whitelist:', data.session.user.email);
             
-            // Smart role assignment based on email domain and known users
-            let defaultRole = 'scanner'; // Safe default
-            const email = data.session.user.email.toLowerCase();
+            // Sign out the user immediately for security
+            await supabase.auth.signOut();
             
-            // Assign superuser role for known admin emails
-            if (email === 'saleem@poppatjamals.com') {
-              defaultRole = 'superuser';
-              console.log('🔐 GOOGLE_AUTH: Assigning superuser role to admin email');
-            } else if (email.includes('supervisor') || email.includes('manager')) {
-              defaultRole = 'supervisor';
-              console.log('🔐 GOOGLE_AUTH: Assigning supervisor role based on email pattern');
-            }
-            
-            const { data: newProfile, error: createError } = await supabase
-              .from('users')
-              .insert({
-                email: data.session.user.email,
-                username: getUsernameFromEmail(data.session.user.email),
-                full_name: googleResult.user.name || '',
-                role: defaultRole,
-                location_ids: defaultRole === 'superuser' ? [] : [], // Superusers will get location access via RLS
-                created_at: new Date().toISOString(),
-              })
-              .select()
-              .single();
-            
-            if (createError) {
-              console.error('🔐 GOOGLE_AUTH: Error creating user profile:', createError);
-              throw new Error(`Failed to create user profile: ${createError.message}`);
-            }
-            
-            console.log('🔐 GOOGLE_AUTH: Created new user profile with role:', defaultRole);
-            return { session: data.session, user: newProfile };
+            throw new Error(
+              `Access denied. Your Google account (${data.session.user.email}) is not authorized for this system. ` +
+              'Only pre-approved users can access the mobile app. Please contact a system administrator ' +
+              '(saleem@poppatjamals.com) to be added to the authorized user list.'
+            );
           }
           throw profileError;
         }

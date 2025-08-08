@@ -1,6 +1,6 @@
 'use client'
 
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import {
   Box,
   Drawer,
@@ -26,6 +26,7 @@ import {
   Settings,
   ExitToApp,
   Notifications,
+  LocationOn,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -39,8 +40,30 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [currentUser, setCurrentUser] = useState<any>(null)
   const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    loadCurrentUser()
+  }, [])
+
+  const loadCurrentUser = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('username, role, email')
+          .eq('email', session.user.email)
+          .single()
+        
+        setCurrentUser(userProfile)
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error)
+    }
+  }
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
@@ -62,6 +85,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const navigationItems = [
     { text: 'Dashboard', icon: <Dashboard />, href: '/dashboard' },
     { text: 'Reports', icon: <Assessment />, href: '/dashboard/reports' },
+    { text: 'Locations', icon: <LocationOn />, href: '/dashboard/locations' },
     { text: 'Users', icon: <People />, href: '/dashboard/users' },
     { text: 'Settings', icon: <Settings />, href: '/dashboard/settings' },
   ]
@@ -124,7 +148,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             onClick={handleProfileMenuOpen}
             color="inherit"
           >
-            <Avatar sx={{ width: 32, height: 32 }}>U</Avatar>
+            <Avatar sx={{ width: 32, height: 32 }}>
+              {currentUser?.username?.charAt(0).toUpperCase() || 'U'}
+            </Avatar>
           </IconButton>
         </Toolbar>
       </AppBar>
@@ -183,6 +209,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         open={Boolean(anchorEl)}
         onClose={handleProfileMenuClose}
       >
+        <MenuItem disabled sx={{ opacity: '1 !important' }}>
+          <Box>
+            <Typography variant="body2" fontWeight="medium">
+              {currentUser?.username || 'User'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {currentUser?.role || 'Role'}
+            </Typography>
+          </Box>
+        </MenuItem>
         <MenuItem onClick={handleSignOut}>
           <ListItemIcon>
             <ExitToApp fontSize="small" />
