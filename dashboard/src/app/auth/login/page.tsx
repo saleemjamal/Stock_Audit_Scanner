@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Box,
@@ -11,79 +11,87 @@ import {
   Container,
   Alert,
   CircularProgress,
-  TextField,
-  InputAdornment,
-  IconButton,
+  Divider,
 } from '@mui/material'
-import { Visibility, VisibilityOff, Login as LoginIcon } from '@mui/icons-material'
+import { Google as GoogleIcon } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
-
-// Username to email mapping
-const USERNAME_EMAIL_MAP: Record<string, string> = {
-  'saleem': 'saleem@poppatjamals.com',
-  'supervisor1': 'supervisor1@test.com',
-  'scanner1': 'scanner1@test.com',
-};
-
-const getUserEmail = (username: string): string => {
-  return USERNAME_EMAIL_MAP[username] || `${username}@poppatjamals.com`;
-};
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!username.trim() || !password.trim()) {
-      setError('Please enter both username and password')
-      return
+  // Check if user is already authenticated and handle URL params
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        router.push('/dashboard')
+      }
     }
+    
+    // Check for error in URL params
+    const urlParams = new URLSearchParams(window.location.search)
+    const errorParam = urlParams.get('error')
+    if (errorParam === 'user_not_in_system') {
+      setError('Your Google account is not authorized for this system. Please contact an administrator to be added.')
+    } else if (errorParam === 'insufficient_permissions') {
+      setError('Access denied. Scanners should use the mobile app.')
+    }
+    
+    checkAuth()
+  }, [router, supabase])
 
+  const handleGoogleSignIn = async () => {
     try {
       setLoading(true)
       setError(null)
 
-      // Convert username to email
-      const email = getUserEmail(username);
-
-      // Sign in with Supabase Auth
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`
+        }
       })
 
       if (error) {
-        throw new Error('Invalid username or password')
+        throw error
       }
 
-      if (data.session?.user) {
-        // Get user profile to check role
-        const { data: userProfile, error: profileError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', data.session.user.id)
-          .single()
-
-        if (profileError) {
-          throw new Error('Unable to load user profile')
-        }
-
-        // Check if user has dashboard access (supervisor or superuser only)
-        if (userProfile.role === 'scanner') {
-          await supabase.auth.signOut() // Sign them out
-          throw new Error('Access denied. Scanners should use the mobile app.')
-        }
-
-        // Redirect to dashboard on success
-        router.push('/dashboard')
+      // OAuth will redirect automatically, but just in case:
+      if (data.url) {
+        window.location.href = data.url
       }
+    } catch (error: any) {
+      console.error('Google sign in error:', error)
+      setError(error.message || 'Failed to sign in with Google')
+      setLoading(false)
+    }
+  }
+
+  const handleTestSignIn = async (email: string) => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // For testing - check if user exists in our system
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single()
+
+      if (profileError) {
+        throw new Error(`User ${email} not found in system. Please contact an administrator.`)
+      }
+
+      // Check role access
+      if (userProfile.role === 'scanner') {
+        throw new Error('Access denied. Scanners should use the mobile app.')
+      }
+
+      setError(`Test user ${email} found with role: ${userProfile.role}. Use Google Sign-in above to authenticate.`)
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -108,62 +116,74 @@ export default function LoginPage() {
                 Stock Audit Dashboard
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                Sign in to manage inventory audits
+                Sign in with Google to manage inventory audits
               </Typography>
             </Box>
 
             {error && (
-              <Alert severity="error" sx={{ mb: 3 }}>
+              <Alert 
+                severity={error.includes('found with role') ? 'info' : 'error'} 
+                sx={{ mb: 3 }}
+              >
                 {error}
               </Alert>
             )}
 
-            <Box component="form" onSubmit={handleSignIn} sx={{ mt: 1 }}>
-              <TextField
-                margin="normal"
-                required
-                fullWidth
-                label="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                autoFocus
-                disabled={loading}
-              />
-              <TextField
-                margin="normal"
-                required
-                fullWidth
-                label="Password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                disabled={loading}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={() => setShowPassword(!showPassword)}
-                        edge="end"
-                        disabled={loading}
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
+            {/* Google Sign In Button */}
+            <Button
+              fullWidth
+              variant="contained"
+              size="large"
+              startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <GoogleIcon />}
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              sx={{ 
+                mt: 2, 
+                mb: 3, 
+                py: 1.5,
+                backgroundColor: '#4285f4',
+                '&:hover': {
+                  backgroundColor: '#357ae8',
+                },
+                '&:disabled': {
+                  backgroundColor: '#cccccc',
+                }
+              }}
+            >
+              {loading ? 'Signing in...' : 'Sign in with Google'}
+            </Button>
+
+            <Divider sx={{ my: 3 }}>
+              <Typography variant="body2" color="text.secondary">
+                Development Testing
+              </Typography>
+            </Divider>
+
+            {/* Test User Buttons */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                size="large"
-                startIcon={loading ? <CircularProgress size={20} /> : <LoginIcon />}
-                disabled={loading || !username.trim() || !password.trim()}
-                sx={{ mt: 3, mb: 2, py: 1.5 }}
+                variant="outlined"
+                size="small"
+                onClick={() => handleTestSignIn('saleem@poppatjamals.com')}
+                disabled={loading}
               >
-                {loading ? 'Signing in...' : 'Sign In'}
+                Test: Saleem (Superuser)
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => handleTestSignIn('supervisor1@poppatjamals.com')}
+                disabled={loading}
+              >
+                Test: Supervisor 1
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => handleTestSignIn('scanner1@poppatjamals.com')}
+                disabled={loading}
+              >
+                Test: Scanner 1 (Should be denied)
               </Button>
             </Box>
 
@@ -174,7 +194,7 @@ export default function LoginPage() {
             >
               Supervisors and administrators only.
               <br />
-              Contact your administrator for login credentials.
+              Scanners should use the mobile app.
             </Typography>
           </CardContent>
         </Card>

@@ -1,8 +1,8 @@
 import SQLite from 'react-native-sqlite-storage';
 import { Scan, Rack, SyncQueueItem } from '../../../shared/types';
 
-// Enable debug mode for development
-SQLite.DEBUG(true);
+// Disable debug mode to reduce SQLite logging
+SQLite.DEBUG(false);
 SQLite.enablePromise(true);
 
 const DATABASE_NAME = 'StockAudit.db';

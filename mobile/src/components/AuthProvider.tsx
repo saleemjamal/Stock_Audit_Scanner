@@ -4,7 +4,7 @@ import { View, StyleSheet } from 'react-native';
 import { ActivityIndicator, Text } from 'react-native-paper';
 
 import { supabase } from '../services/supabase';
-import { initializeAuth, setSession, setUser, setLoading } from '../store/slices/authSliceWorkaround';
+import { initializeAuth, setSession, setUser, setLoading } from '../store/slices/authSlice';
 import { showErrorMessage, setInitialized } from '../store/slices/appSlice';
 import { RootState, AppDispatch } from '../store';
 
@@ -17,7 +17,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const { isLoading } = useSelector((state: RootState) => state.auth);
 
   useEffect(() => {
-    // Initialize auth state
+    // Initialize auth state with Supabase Auth
     dispatch(initializeAuth())
       .unwrap()
       .then(() => {
@@ -25,11 +25,42 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       })
       .catch((error) => {
         console.error('Auth initialization failed:', error);
-        dispatch(setInitialized(true)); // Continue anyway
+        dispatch(setInitialized(true)); // Continue anyway, user can still login
       });
 
-    // Since we're not using Supabase Auth, we don't need auth state change listener
-    // The auth state is managed through our custom login flow
+    // Set up auth state change listener for Supabase Auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔐 AUTH: Auth state changed:', event, session?.user?.email);
+      dispatch(setSession(session));
+      
+      if (session?.user) {
+        // Get user profile by email (for Google OAuth users)
+        console.log('🔐 AUTH: Looking up user profile for:', session.user.email);
+        supabase
+          .from('users')
+          .select('*')
+          .eq('email', session.user.email)
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('🔐 AUTH: Error fetching user profile:', error);
+              if (error.code === 'PGRST116') {
+                console.error('🔐 AUTH: User not found in database:', session.user.email);
+              }
+            } else {
+              console.log('🔐 AUTH: User profile found:', data);
+              dispatch(setUser(data));
+            }
+          });
+      } else {
+        console.log('🔐 AUTH: No session, clearing user');
+        dispatch(setUser(null));
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [dispatch]);
 
   if (isLoading) {

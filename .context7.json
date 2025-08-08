@@ -1,0 +1,144 @@
+{
+  "name": "Stock Audit Scanner System",
+  "description": "Mobile-first inventory audit system with React Native app, Next.js dashboard, and Supabase backend",
+  "version": "1.0.0",
+  "contexts": {
+    "mobile": {
+      "path": "./mobile",
+      "type": "react-native",
+      "platform": ["android", "ios"],
+      "main": "./mobile/src/App.tsx",
+      "entry_points": [
+        "./mobile/src/App.tsx",
+        "./mobile/src/navigation/AppNavigator.tsx",
+        "./mobile/src/store/index.ts"
+      ],
+      "important_files": [
+        "./mobile/src/screens/auth/LoginScreen.tsx",
+        "./mobile/src/services/supabase.ts",
+        "./mobile/src/store/slices/authSlice.ts",
+        "./mobile/src/components/WebViewOAuth.tsx",
+        "./mobile/src/components/AuthProvider.tsx"
+      ],
+      "current_issues": [
+        "WebView OAuth authentication failing - state synchronization problems",
+        "Mobile OAuth redirect URL issues with React Native",
+        "Need to migrate to Firebase Auth + Supabase database approach"
+      ]
+    },
+    "dashboard": {
+      "path": "./dashboard", 
+      "type": "nextjs",
+      "version": "14",
+      "main": "./dashboard/src/app/page.tsx",
+      "entry_points": [
+        "./dashboard/src/app/page.tsx",
+        "./dashboard/src/app/dashboard/page.tsx",
+        "./dashboard/src/app/auth/login/page.tsx"
+      ],
+      "important_files": [
+        "./dashboard/src/lib/supabase.ts",
+        "./dashboard/src/components/AuditOverview.tsx",
+        "./dashboard/src/components/PendingApprovals.tsx"
+      ]
+    },
+    "database": {
+      "path": "./supabase",
+      "type": "sql",
+      "database": "postgresql",
+      "main_schema": "./supabase/01_clean_schema.sql",
+      "important_files": [
+        "./supabase/01_clean_schema.sql",
+        "./supabase/02_rls_policies.sql", 
+        "./supabase/03_functions.sql",
+        "./supabase/04_seed_data.sql"
+      ],
+      "key_tables": [
+        "users",
+        "locations", 
+        "audit_sessions",
+        "racks",
+        "scans"
+      ]
+    },
+    "shared": {
+      "path": "./shared",
+      "type": "typescript",
+      "main": "./shared/types/index.ts",
+      "important_files": [
+        "./shared/types/index.ts"
+      ]
+    },
+    "documentation": {
+      "path": ".",
+      "type": "markdown",
+      "important_files": [
+        "./CLAUDE.md",
+        "./MOBILE_OAUTH_SOLUTIONS.md",
+        "./REACT_NATIVE_APP_AUTH_IMPLEMENTATION.md",
+        "./MOBILE_OAUTH_ISSUES.md",
+        "./README.md"
+      ]
+    }
+  },
+  "dependencies": {
+    "mobile_to_database": {
+      "from": "mobile",
+      "to": "database", 
+      "relationship": "uses",
+      "files": [
+        "./mobile/src/services/supabase.ts",
+        "./supabase/02_rls_policies.sql"
+      ]
+    },
+    "dashboard_to_database": {
+      "from": "dashboard",
+      "to": "database",
+      "relationship": "uses", 
+      "files": [
+        "./dashboard/src/lib/supabase.ts",
+        "./supabase/02_rls_policies.sql"
+      ]
+    },
+    "shared_types": {
+      "from": "shared",
+      "to": ["mobile", "dashboard"],
+      "relationship": "provides_types",
+      "files": [
+        "./shared/types/index.ts"
+      ]
+    }
+  },
+  "current_priorities": [
+    "Fix mobile OAuth authentication issues",
+    "Implement Firebase Auth + Supabase database solution", 
+    "Complete mobile authentication flow",
+    "Test OAuth on both Android and iOS platforms"
+  ],
+  "ignore_patterns": [
+    "node_modules/**",
+    "**/node_modules/**",
+    "build/**",
+    "dist/**", 
+    ".git/**",
+    "android/build/**",
+    "ios/build/**",
+    "android/.gradle/**",
+    "ios/Pods/**",
+    "**/.next/**",
+    "**/coverage/**",
+    "**/__pycache__/**",
+    "**/*.log"
+  ],
+  "file_extensions": [
+    ".ts",
+    ".tsx", 
+    ".js",
+    ".jsx",
+    ".sql",
+    ".json",
+    ".md",
+    ".yml",
+    ".yaml"
+  ]
+}

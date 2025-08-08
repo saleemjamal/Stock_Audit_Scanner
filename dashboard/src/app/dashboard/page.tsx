@@ -31,16 +31,21 @@ export default function DashboardPage() {
         return
       }
 
-      // Get user profile
+      // Get user profile by email (Google OAuth uses email)
       const { data: userProfile, error: profileError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', session.user.id)
+        .eq('email', session.user.email)
         .single()
 
       if (profileError) {
         console.error('Error loading user profile:', profileError)
-        router.push('/auth/login')
+        // If user doesn't exist, they need to be added to the system
+        if (profileError.code === 'PGRST116') {
+          router.push('/auth/login?error=user_not_in_system')
+        } else {
+          router.push('/auth/login')
+        }
         return
       }
 

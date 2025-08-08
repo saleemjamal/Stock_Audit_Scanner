@@ -6,6 +6,18 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.CAMERA" />
     
+    <!-- Allow opening HTTPS URLs -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
+    
     <!-- USB OTG Support -->
     <uses-feature 
         android:name="android.hardware.usb.host" 
@@ -39,7 +51,7 @@
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="stockaudit" />
+            <data android:scheme="stockauditscanner" />
         </intent-filter>
         
         <!-- USB device attached -->

@@ -9,7 +9,7 @@ import { MainStackParamList } from '../../navigation/MainNavigator';
 import { RootState, AppDispatch } from '../../store';
 import { setSelectedLocation, showErrorMessage } from '../../store/slices/appSlice';
 import { supabaseHelpers } from '../../services/supabase';
-import { signOut } from '../../store/slices/authSliceWorkaround';
+import { signOut } from '../../store/slices/authSlice';
 import { Location } from '../../../../shared/types';
 
 type LocationSelectionNavigationProp = StackNavigationProp<MainStackParamList, 'LocationSelection'>;

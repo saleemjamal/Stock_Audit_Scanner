@@ -12,7 +12,12 @@
           "package_name": "com.stockauditscanner"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "318174569372-71q77m38ou4br513pl9egl3kne3a6j5s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAkeqE-gZRWSh_FoDHzaZn3eiCEmr60eJs"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "318174569372-71q77m38ou4br513pl9egl3kne3a6j5s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

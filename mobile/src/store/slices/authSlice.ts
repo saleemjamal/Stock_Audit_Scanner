@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { supabase, supabaseHelpers } from '../../services/supabase';
-import { getUserEmail } from '../../utils/authHelpers';
+import { getUserEmail, getUsernameFromEmail } from '../../utils/authHelpers';
+import { googleSignIn } from '../../services/googleSignIn';
 import { User } from '../../../../shared/types';
 
 interface AuthState {
@@ -24,17 +25,55 @@ export const initializeAuth = createAsyncThunk(
   'auth/initialize',
   async (_, { rejectWithValue }) => {
     try {
+      console.log('🔐 DEBUG: Getting session from Supabase...');
       const { data: { session }, error } = await supabase.auth.getSession();
       
-      if (error) throw error;
+      console.log('🔐 DEBUG: Session check result:', { 
+        hasSession: !!session, 
+        hasUser: !!session?.user,
+        email: session?.user?.email,
+        error: error?.message 
+      });
+      
+      if (error) {
+        console.error('🔐 DEBUG: Session error:', error);
+        throw error;
+      }
       
       if (session?.user) {
-        const userProfile = await supabaseHelpers.getUserProfile(session.user.id);
+        console.log('🔐 DEBUG: Session found, looking up user profile for:', session.user.email);
+        
+        // Get user profile by email (Google OAuth uses email)
+        const { data: userProfile, error: profileError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', session.user.email)
+          .single();
+        
+        console.log('🔐 DEBUG: User profile lookup result:', { 
+          hasProfile: !!userProfile,
+          profile: userProfile,
+          error: profileError?.code,
+          errorMessage: profileError?.message 
+        });
+          
+        if (profileError) {
+          if (profileError.code === 'PGRST116') {
+            console.error('🔐 DEBUG: User not found in database');
+            throw new Error(`Your account (${session.user.email}) is not authorized for this system.`);
+          }
+          console.error('🔐 DEBUG: Profile lookup error:', profileError);
+          throw profileError;
+        }
+        
+        console.log('🔐 DEBUG: Returning session and user profile');
         return { session, user: userProfile };
       }
       
+      console.log('🔐 DEBUG: No session found');
       return { session: null, user: null };
     } catch (error: any) {
+      console.error('🔐 DEBUG: initializeAuth error:', error);
       return rejectWithValue(error.message);
     }
   }
@@ -56,14 +95,19 @@ export const signInWithPassword = createAsyncThunk(
       if (error) throw error;
       
       if (data.session?.user) {
-        // Get user profile from our users table
+        // Get user profile by email (Google OAuth uses email)
         const { data: userProfile, error: profileError } = await supabase
           .from('users')
           .select('*')
-          .eq('id', data.session.user.id)
+          .eq('email', data.session.user.email)
           .single();
 
-        if (profileError) throw profileError;
+        if (profileError) {
+          if (profileError.code === 'PGRST116') {
+            throw new Error(`Your account (${data.session.user.email}) is not authorized for this system.`);
+          }
+          throw profileError;
+        }
 
         return { session: data.session, user: userProfile };
       }
@@ -75,12 +119,144 @@ export const signInWithPassword = createAsyncThunk(
   }
 );
 
-// Removed Google OAuth - using username/password only
+export const signInWithGoogle = createAsyncThunk(
+  'auth/signInWithGoogle',
+  async (_, { rejectWithValue }) => {
+    try {
+      console.log('🔐 GOOGLE_AUTH: Starting native Google Sign-In');
+      
+      // Sign in with native Google SDK
+      const googleResult = await googleSignIn.signIn();
+      
+      if (!googleResult.idToken) {
+        throw new Error('No ID token received from Google Sign-In');
+      }
+      
+      console.log('🔐 GOOGLE_AUTH: Google sign-in successful, authenticating with Supabase');
+      
+      // Sign in to Supabase using the Google ID token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: googleResult.idToken,
+      });
+      
+      if (error) {
+        console.error('🔐 GOOGLE_AUTH: Supabase authentication error:', error);
+        throw error;
+      }
+      
+      if (data.session?.user) {
+        console.log('🔐 GOOGLE_AUTH: Looking up user profile for:', data.session.user.email);
+        
+        // Get user profile by email
+        const { data: userProfile, error: profileError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', data.session.user.email)
+          .single();
+        
+        if (profileError) {
+          if (profileError.code === 'PGRST116') {
+            // User doesn't exist in our database yet - determine appropriate role
+            console.log('🔐 GOOGLE_AUTH: Creating new user profile for:', data.session.user.email);
+            
+            // Smart role assignment based on email domain and known users
+            let defaultRole = 'scanner'; // Safe default
+            const email = data.session.user.email.toLowerCase();
+            
+            // Assign superuser role for known admin emails
+            if (email === 'saleem@poppatjamals.com') {
+              defaultRole = 'superuser';
+              console.log('🔐 GOOGLE_AUTH: Assigning superuser role to admin email');
+            } else if (email.includes('supervisor') || email.includes('manager')) {
+              defaultRole = 'supervisor';
+              console.log('🔐 GOOGLE_AUTH: Assigning supervisor role based on email pattern');
+            }
+            
+            const { data: newProfile, error: createError } = await supabase
+              .from('users')
+              .insert({
+                email: data.session.user.email,
+                username: getUsernameFromEmail(data.session.user.email),
+                full_name: googleResult.user.name || '',
+                role: defaultRole,
+                location_ids: defaultRole === 'superuser' ? [] : [], // Superusers will get location access via RLS
+                created_at: new Date().toISOString(),
+              })
+              .select()
+              .single();
+            
+            if (createError) {
+              console.error('🔐 GOOGLE_AUTH: Error creating user profile:', createError);
+              throw new Error(`Failed to create user profile: ${createError.message}`);
+            }
+            
+            console.log('🔐 GOOGLE_AUTH: Created new user profile with role:', defaultRole);
+            return { session: data.session, user: newProfile };
+          }
+          throw profileError;
+        }
+        
+        console.log('🔐 GOOGLE_AUTH: Authentication complete');
+        return { session: data.session, user: userProfile };
+      }
+      
+      throw new Error('Authentication failed');
+    } catch (error: any) {
+      console.error('🔐 GOOGLE_AUTH: Error:', error);
+      await googleSignIn.signOut(); // Clean up on error
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+export const signInWithSupabaseOAuth = createAsyncThunk(
+  'auth/signInWithSupabaseOAuth',
+  async ({ provider }: { provider: 'google' }, { rejectWithValue }) => {
+    try {
+      console.log('🔐 OAUTH: Starting OAuth flow with provider:', provider);
+      
+      // Use Supabase's OAuth flow (will open browser)
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: 'https://lgiljudekiobysjsuepo.supabase.co/auth/v1/callback',
+        },
+      });
+      
+      console.log('🔐 OAUTH: Supabase response:', { data, error });
+      
+      if (error) {
+        console.error('OAuth error:', error);
+        throw error;
+      }
+      
+      if (!data || !data.url) {
+        throw new Error('No OAuth URL returned from Supabase');
+      }
+      
+      console.log('🔐 OAUTH: Generated URL:', data.url);
+      
+      // OAuth flow will redirect back to app, session will be handled by auth state change
+      return { success: true, url: data.url };
+    } catch (error: any) {
+      console.error('signInWithSupabaseOAuth error:', error);
+      return rejectWithValue(error.message);
+    }
+  }
+);
 
 export const signOut = createAsyncThunk(
   'auth/signOut',
   async (_, { rejectWithValue }) => {
     try {
+      // Sign out from Google if signed in
+      const isGoogleSignedIn = await googleSignIn.isSignedIn();
+      if (isGoogleSignedIn) {
+        await googleSignIn.signOut();
+      }
+      
+      // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
@@ -169,7 +345,36 @@ const authSlice = createSlice({
         state.error = action.payload as string;
       })
       
-      // Google OAuth removed - username/password only
+      // Google Sign-In
+      .addCase(signInWithGoogle.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(signInWithGoogle.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.session = action.payload.session;
+        state.user = action.payload.user;
+        state.isAuthenticated = true;
+      })
+      .addCase(signInWithGoogle.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string;
+        state.isAuthenticated = false;
+      })
+      
+      // Supabase OAuth
+      .addCase(signInWithSupabaseOAuth.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(signInWithSupabaseOAuth.fulfilled, (state) => {
+        state.isLoading = false;
+        // Session will be set by initializeAuth when user returns from OAuth
+      })
+      .addCase(signInWithSupabaseOAuth.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string;
+      })
       
       // Sign out
       .addCase(signOut.fulfilled, (state) => {

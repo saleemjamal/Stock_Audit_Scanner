@@ -1,52 +1,89 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { 
-  Text, 
-  TextInput, 
   Button, 
   Card, 
   Title, 
   Paragraph,
   Divider,
   HelperText,
+  ActivityIndicator,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { signInWithPassword, clearError } from '../../store/slices/authSlice';
+import { signInWithGoogle, signInWithSupabaseOAuth, clearError, initializeAuth } from '../../store/slices/authSlice';
 import { RootState, AppDispatch } from '../../store';
-import { isValidUsername } from '../../../../shared/utils/helpers';
+import { supabase } from '../../services/supabase';
+import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
 
 const LoginScreen: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const { isLoading, error } = useSelector((state: RootState) => state.auth);
   
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (!isValidUsername(username) || password.length < 6) {
-      return;
-    }
-
-    dispatch(clearError());
-    
+  const handleGoogleSignIn = async () => {
     try {
-      await dispatch(signInWithPassword({ username, password })).unwrap();
-      // Navigation handled by auth state change
-    } catch (error) {
-      // Error is handled by the slice
+      setIsGoogleLoading(true);
+      dispatch(clearError());
+
+      console.log('🔐 NATIVE_GOOGLE: Starting native Google Sign-In');
+      
+      // Use native Google Sign-In
+      await dispatch(signInWithGoogle()).unwrap();
+      
+      console.log('🔐 NATIVE_GOOGLE: Sign-in successful');
+      // Navigation will happen automatically when auth state changes
+    } catch (error: any) {
+      console.error('🔐 NATIVE_GOOGLE: Sign-in Error:', error);
+      Alert.alert(
+        'Sign-in Error',
+        error.message || 'Failed to sign in with Google',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
-  const resetForm = () => {
-    setUsername('');
-    setPassword('');
-    setShowPassword(false);
-    dispatch(clearError());
+  // Removed old WebView OAuth handlers - using native Google Sign-In now
+
+  const handleTestSignIn = (email: string) => {
+    Alert.alert(
+      'Development Testing',
+      `This would test user lookup for: ${email}\n\nIn production, users would sign in with their actual Google accounts.`,
+      [{ text: 'OK' }]
+    );
   };
 
+  const handleCheckSession = async () => {
+    console.log('🔐 BUTTON: Check Session button pressed');
+    try {
+      // Direct Supabase check first
+      console.log('🔐 BUTTON: Checking Supabase session directly...');
+      const { data: { session }, error } = await supabase.auth.getSession();
+      console.log('🔐 BUTTON: Direct Supabase session:', { 
+        hasSession: !!session, 
+        email: session?.user?.email,
+        error: error?.message 
+      });
 
+      // Then try Redux
+      console.log('🔐 BUTTON: About to dispatch initializeAuth...');
+      const result = await dispatch(initializeAuth()).unwrap();
+      console.log('🔐 BUTTON: Redux result:', result);
+      
+      Alert.alert('Session Check', 
+        `Direct Supabase: ${!!session}\n` +
+        `Session Email: ${session?.user?.email || 'None'}\n` +
+        `Redux Result: ${!!result.session}\n` +
+        `User: ${result.user?.email || 'None'}`
+      );
+    } catch (error: any) {
+      console.log('🔐 BUTTON: Got error:', error);
+      Alert.alert('Session Check', `Error: ${error.message}`);
+    }
+  };
 
   return (
     <KeyboardAvoidingView 
@@ -58,82 +95,91 @@ const LoginScreen: React.FC = () => {
           <Card.Content style={styles.cardContent}>
             <Title style={styles.title}>Stock Audit Scanner</Title>
             <Paragraph style={styles.subtitle}>
-              Sign in to start scanning inventory
+              Sign in with Google to start scanning inventory
             </Paragraph>
 
             <View style={styles.form}>
-              <TextInput
-                label="Username"
-                value={username}
-                onChangeText={setUsername}
-                mode="outlined"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-                error={username.length > 0 && !isValidUsername(username)}
-              />
-              
-              <HelperText 
-                type="error" 
-                visible={username.length > 0 && !isValidUsername(username)}
-              >
-                Username must be 3-20 characters (letters, numbers, - _)
-              </HelperText>
-
-              <TextInput
-                label="Password"
-                value={password}
-                onChangeText={setPassword}
-                mode="outlined"
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-                error={password.length > 0 && password.length < 6}
-                right={
-                  <TextInput.Icon
-                    icon={showPassword ? 'eye-off' : 'eye'}
-                    onPress={() => setShowPassword(!showPassword)}
+              {/* Native Google Sign In Button */}
+              <View style={styles.googleButtonContainer}>
+                <GoogleSigninButton
+                  style={styles.googleSignInButton}
+                  size={GoogleSigninButton.Size.Wide}
+                  color={GoogleSigninButton.Color.Dark}
+                  onPress={handleGoogleSignIn}
+                  disabled={isGoogleLoading || isLoading}
+                />
+                {isGoogleLoading && (
+                  <ActivityIndicator 
+                    style={styles.loadingOverlay} 
+                    color="#4285f4" 
                   />
-                }
-              />
-              
-              <HelperText 
-                type="error" 
-                visible={password.length > 0 && password.length < 6}
-              >
-                Password must be at least 6 characters
-              </HelperText>
-
-              <Button
-                mode="contained"
-                onPress={handleLogin}
-                loading={isLoading}
-                disabled={!isValidUsername(username) || password.length < 6 || isLoading}
-                style={styles.loginButton}
-                contentStyle={styles.buttonContent}
-              >
-                Sign In
-              </Button>
+                )}
+              </View>
 
               {error && (
                 <HelperText type="error" style={styles.errorText}>
                   {error}
                 </HelperText>
               )}
+
+              <Divider style={styles.divider} />
+
+              {/* Development Test Buttons */}
+              <View style={styles.testSection}>
+                <Paragraph style={styles.testHeader}>Development Testing</Paragraph>
+                
+                <Button
+                  mode="outlined"
+                  onPress={handleCheckSession}
+                  style={styles.testButton}
+                  compact
+                  buttonColor="#ff9800"
+                >
+                  Check Session Status
+                </Button>
+                
+                <Button
+                  mode="outlined"
+                  onPress={() => handleTestSignIn('saleem@poppatjamals.com')}
+                  style={styles.testButton}
+                  compact
+                >
+                  Test: Saleem (Superuser)
+                </Button>
+                
+                <Button
+                  mode="outlined"
+                  onPress={() => handleTestSignIn('supervisor1@poppatjamals.com')}
+                  style={styles.testButton}
+                  compact
+                >
+                  Test: Supervisor 1
+                </Button>
+                
+                <Button
+                  mode="outlined"
+                  onPress={() => handleTestSignIn('scanner1@poppatjamals.com')}
+                  style={styles.testButton}
+                  compact
+                >
+                  Test: Scanner 1
+                </Button>
+              </View>
             </View>
           </Card.Content>
         </Card>
 
         <View style={styles.footer}>
           <Paragraph style={styles.footerText}>
-            Contact your supervisor for login credentials
+            All user roles can use the mobile app
           </Paragraph>
           <Paragraph style={styles.footerText}>
             Scanner • Supervisor • Superuser
           </Paragraph>
         </View>
       </ScrollView>
+
+      {/* Native Google Sign-In - No WebView needed */}
     </KeyboardAvoidingView>
   );
 };
@@ -170,17 +216,48 @@ const styles = StyleSheet.create({
   form: {
     width: '100%',
   },
-  input: {
-    marginBottom: 8,
+  googleButton: {
+    marginTop: 16,
   },
   loginButton: {
-    marginTop: 16,
+    marginBottom: 16,
   },
   buttonContent: {
     height: 48,
   },
+  googleButtonContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+    position: 'relative',
+  },
+  googleSignInButton: {
+    width: '100%',
+    height: 48,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   divider: {
     marginVertical: 16,
+  },
+  testSection: {
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  testHeader: {
+    fontSize: 14,
+    color: '#666666',
+    textAlign: 'center',
+    marginBottom: 12,
+    fontWeight: '600',
+  },
+  testButton: {
+    marginVertical: 4,
+    width: '100%',
   },
   errorText: {
     marginTop: 16,
