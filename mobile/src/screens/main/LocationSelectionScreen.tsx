@@ -155,6 +155,7 @@ const LocationSelectionScreen: React.FC = () => {
           </Button>
         </View>
       </ScrollView>
+
     </View>
   );
 };
@@ -257,6 +258,15 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     marginBottom: 8,
+  },
+  debugButton: {
+    marginTop: 12,
+  },
+  debugCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 16,
+    zIndex: 10000,
   },
 });
 

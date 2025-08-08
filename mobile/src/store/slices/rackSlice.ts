@@ -47,19 +47,30 @@ export const loadAvailableRacks = createAsyncThunk(
       // Try to load from server first
       try {
         const racks = await supabaseHelpers.getAvailableRacks(auditSessionId);
+        console.log('🔍 RACK_SLICE_DEBUG: Racks fetched from Supabase:', racks?.length || 0);
         
-        // Cache in local database
-        for (const rack of racks) {
-          await DatabaseService.cacheRack(rack);
-        }
+        // TEMPORARILY SKIP CACHING - it seems to be causing issues
+        console.log('🔍 RACK_SLICE_DEBUG: Skipping cache for now to debug Redux issue');
         
+        // TODO: Re-enable caching once Redux state update is working
+        // try {
+        //   for (const rack of racks) {
+        //     await DatabaseService.cacheRack(rack);
+        //   }
+        // } catch (cacheError) {
+        //   console.warn('Failed to cache racks:', cacheError);
+        // }
+        
+        console.log('🔍 RACK_SLICE_DEBUG: Returning racks to Redux:', racks);
         return racks;
       } catch (serverError) {
+        console.error('🔍 RACK_SLICE_DEBUG: Server error, falling back to cache:', serverError);
         // Fallback to cached data
         const cachedRacks = await DatabaseService.getCachedRacks(auditSessionId);
         return cachedRacks.filter(rack => rack.status === 'available');
       }
     } catch (error: any) {
+      console.error('🔍 RACK_SLICE_DEBUG: Fatal error in loadAvailableRacks:', error);
       return rejectWithValue(error.message);
     }
   }
@@ -80,14 +91,18 @@ export const loadUserRacks = createAsyncThunk(
       try {
         const racks = await supabaseHelpers.getUserRacks(auditSessionId, userId);
         
-        // Cache in local database
-        for (const rack of racks) {
-          await DatabaseService.cacheRack(rack);
-        }
+        // Cache in background for offline support
+        setImmediate(() => {
+          racks.forEach(rack => {
+            DatabaseService.cacheRack(rack).catch(error => 
+              console.warn('Background caching failed for rack:', rack.id, error)
+            );
+          });
+        });
         
         return racks;
       } catch (serverError) {
-        // Fallback to cached data
+        // Fallback to cached data when server unavailable
         const cachedRacks = await DatabaseService.getCachedRacks(auditSessionId);
         return cachedRacks.filter(rack => rack.scanner_id === userId);
       }
@@ -284,8 +299,10 @@ const rackSlice = createSlice({
         state.error = null;
       })
       .addCase(loadAvailableRacks.fulfilled, (state, action) => {
+        console.log('🔍 RACK_REDUCER_DEBUG: loadAvailableRacks.fulfilled called with:', action.payload?.length, 'racks');
         state.isLoading = false;
         state.availableRacks = action.payload;
+        console.log('🔍 RACK_REDUCER_DEBUG: State updated, availableRacks now has:', state.availableRacks.length, 'racks');
       })
       .addCase(loadAvailableRacks.rejected, (state, action) => {
         state.isLoading = false;

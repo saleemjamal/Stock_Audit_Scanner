@@ -270,32 +270,39 @@ class DatabaseService {
 
   // Rack operations
   async cacheRack(rack: Rack): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) {
+      return; // Don't throw, just skip caching if database not ready
+    }
 
     const now = new Date().toISOString();
 
-    await this.db.executeSql(
-      `INSERT OR REPLACE INTO local_racks (
-        id, audit_session_id, location_id, rack_number, shelf_number,
-        status, scanner_id, assigned_at, ready_for_approval, total_scans,
-        synced, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        rack.id,
-        rack.audit_session_id,
-        rack.location_id,
-        rack.rack_number,
-        rack.shelf_number || '',
-        rack.status,
-        rack.scanner_id || '',
-        rack.assigned_at || '',
-        rack.ready_for_approval ? 1 : 0,
-        rack.total_scans || 0,
-        1, // cached from server
-        rack.created_at,
-        now,
-      ]
-    );
+    try {
+      await this.db.executeSql(
+        `INSERT OR REPLACE INTO local_racks (
+          id, audit_session_id, location_id, rack_number, shelf_number,
+          status, scanner_id, assigned_at, ready_for_approval, total_scans,
+          synced, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          rack.id,
+          rack.audit_session_id,
+          rack.location_id,
+          rack.rack_number,
+          rack.shelf_number || '',
+          rack.status,
+          rack.scanner_id || '',
+          rack.assigned_at || '',
+          rack.ready_for_approval ? 1 : 0,
+          rack.total_scans || 0,
+          1, // cached from server
+          rack.created_at || now,
+          now,
+        ]
+      );
+    } catch (error) {
+      // Don't throw - caching is optional for offline support
+      console.warn('Background rack caching failed:', rack.rack_number);
+    }
   }
 
   async getCachedRacks(auditSessionId: string): Promise<Rack[]> {
