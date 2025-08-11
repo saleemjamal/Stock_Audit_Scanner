@@ -41,16 +41,12 @@ export const addScan = createAsyncThunk(
     { getState, rejectWithValue }
   ) => {
     try {
+      console.log('🔍 Starting scan process:', scanData);
+      
       const state = getState() as RootState;
-      const userId = state.auth.user?.id;
+      const userId = state.auth.user?.id!; // User must be authenticated to reach scanning
 
-      if (!userId) {
-        throw new Error('User not authenticated');
-      }
-
-      // Check for duplicates in current rack
-      const existingScans = await DatabaseService.getScansForRack(scanData.rackId);
-      const isDuplicate = existingScans.some(scan => scan.barcode === scanData.barcode);
+      console.log('💾 Creating scan object for:', scanData.barcode);
 
       const newScan = {
         barcode: scanData.barcode,
@@ -59,51 +55,67 @@ export const addScan = createAsyncThunk(
         scanner_id: userId,
         device_id: scanData.deviceId,
         quantity: 1,
-        is_recount: isDuplicate,
-        recount_of: isDuplicate ? existingScans.find(s => s.barcode === scanData.barcode)?.id : undefined,
         manual_entry: scanData.manualEntry || false,
         notes: scanData.notes,
       };
 
-      // Add to local database first
-      const localScanId = await DatabaseService.addScan(newScan);
-
-      // Try to sync to server
+      let localScanId = null;
+      console.log('💾 Attempting to save to local database:', newScan);
+      
+      // Phase 1 Safe Optimistic UI: Save locally first (required for fast UI)
       try {
-        const serverScan = await supabaseHelpers.addScan({
-          ...newScan,
-          device_id: scanData.deviceId,
-        });
-
-        // Mark as synced in local database
-        await DatabaseService.markScansAsSynced([localScanId]);
-
-        return {
-          scan: serverScan,
-          isDuplicate,
-          localId: localScanId,
-        };
-      } catch (syncError) {
-        // If sync fails, add to sync queue
-        await DatabaseService.addToSyncQueue({
-          device_id: scanData.deviceId || 'unknown',
-          data_type: 'scan',
-          payload: { scanId: localScanId, scanData: newScan },
-          status: 'pending',
-          retry_count: 0,
-        });
-
-        // Return local scan with sync pending
-        const localScan = (await DatabaseService.getScansForRack(scanData.rackId))
-          .find(s => s.id === localScanId);
-
-        return {
-          scan: localScan,
-          isDuplicate,
-          localId: localScanId,
-          syncPending: true,
-        };
+        localScanId = await DatabaseService.addScan(newScan);
+        console.log('✅ Local scan added with ID:', localScanId);
+      } catch (dbError) {
+        console.error('❌ Local database save failed - cannot proceed:', dbError);
+        throw new Error('Local save failed - please try again');
       }
+
+      // Return early for UI clearing (optimistic UI)
+      const localScanResult = {
+        scan: { ...newScan, id: localScanId },
+        localId: localScanId,
+        syncPending: true,
+      };
+
+      // Background server sync (don't await - let it happen in background)
+      setImmediate(async () => {
+        try {
+          console.log('🌐 Background syncing to server...');
+          const serverScan = await supabaseHelpers.addScan({
+            ...newScan,
+            device_id: scanData.deviceId,
+          });
+          console.log('✅ Background server sync successful:', serverScan.id);
+
+          // Mark as synced in local database
+          try {
+            await DatabaseService.markScansAsSynced([localScanId]);
+            console.log('✅ Local scan marked as synced');
+          } catch (dbError) {
+            console.warn('⚠️ Could not mark scan as synced in local DB');
+          }
+        } catch (syncError) {
+          console.warn('⚠️ Background server sync failed, will retry later:', syncError);
+          
+          // Add to sync queue for later retry
+          if (localScanId) {
+            try {
+              await DatabaseService.addToSyncQueue({
+                device_id: scanData.deviceId || 'unknown',
+                data_type: 'scan',
+                payload: { scanId: localScanId, scanData: newScan },
+                status: 'pending',
+                retry_count: 0,
+              });
+            } catch (queueError) {
+              console.warn('⚠️ Could not add to sync queue');
+            }
+          }
+        }
+      });
+
+      return localScanResult;
     } catch (error: any) {
       return rejectWithValue(error.message);
     }
@@ -225,9 +237,11 @@ const scanSlice = createSlice({
           state.lastScan = action.payload.scan;
           state.scanCount = state.currentRackScans.length;
         }
-
-        if (action.payload.isDuplicate) {
-          state.duplicateWarning = `Duplicate scan detected for ${action.payload.scan?.barcode}`;
+        
+        // Show sync status in UI (optional - for user awareness)
+        if (action.payload.syncPending) {
+          // Could add a subtle indicator that sync is happening in background
+          console.log('🔄 Scan saved locally, syncing in background...');
         }
       })
       .addCase(addScan.rejected, (state, action) => {

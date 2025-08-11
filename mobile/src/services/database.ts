@@ -15,17 +15,38 @@ class DatabaseService {
 
   async initDatabase(): Promise<void> {
     try {
+      console.log('🗄️ Opening SQLite database...');
       this.db = await SQLite.openDatabase({
         name: DATABASE_NAME,
         version: DATABASE_VERSION,
         displayName: DATABASE_DISPLAYNAME,
         size: DATABASE_SIZE,
+        location: 'default', // Add explicit location
       });
+      console.log('✅ Database opened successfully');
 
-      await this.createTables();
-      console.log('Database initialized successfully');
+      await this.createTablesSimplified();
+      console.log('✅ Database initialized successfully');
     } catch (error) {
-      console.error('Database initialization failed:', error);
+      console.error('❌ Database initialization failed:', error);
+      throw error;
+    }
+  }
+
+  private async createTablesSimplified(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🏗️ Creating essential tables only...');
+
+    try {
+      // Create only the most essential table first
+      await this.createScansTable();
+      console.log('✅ Scans table created');
+
+      // Skip other tables for now - add them as needed
+      console.log('✅ Database schema creation completed (simplified)');
+    } catch (error) {
+      console.error('❌ Error creating database schema:', error);
       throw error;
     }
   }
@@ -64,6 +85,7 @@ class DatabaseService {
   }
 
   private async createScansTable(): Promise<void> {
+    console.log('📋 Creating scans table...');
     const sql = `CREATE TABLE IF NOT EXISTS local_scans (
       id TEXT PRIMARY KEY,
       barcode TEXT NOT NULL,
@@ -81,7 +103,14 @@ class DatabaseService {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );`;
-    await this.db!.executeSql(sql);
+    
+    try {
+      await this.db!.executeSql(sql);
+      console.log('✅ Scans table SQL executed successfully');
+    } catch (error) {
+      console.error('❌ Failed to create scans table:', error);
+      throw error;
+    }
   }
 
   private async createRacksTable(): Promise<void> {

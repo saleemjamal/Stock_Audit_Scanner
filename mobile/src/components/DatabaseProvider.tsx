@@ -20,9 +20,9 @@ const DatabaseProvider: React.FC<DatabaseProviderProps> = ({ children }) => {
       try {
         console.log('Initializing local database...');
         
-        // Add timeout to prevent infinite loading (increased to 30 seconds)
+        // Add timeout to prevent infinite loading (reduced to 10 seconds)
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Database initialization timeout after 30 seconds')), 30000);
+          setTimeout(() => reject(new Error('Database initialization timeout after 10 seconds')), 10000);
         });
         
         await Promise.race([

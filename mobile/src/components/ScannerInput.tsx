@@ -10,7 +10,7 @@ import {
 import { TextInput, Text, Button, Card } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { addScan, clearDuplicateWarning } from '../store/slices/scanSlice';
+import { addScan } from '../store/slices/scanSlice';
 import { showSuccessMessage, showWarningMessage, updateLastActivity } from '../store/slices/appSlice';
 import { RootState, AppDispatch } from '../store';
 import { isValidBarcode } from '../../../shared/utils/helpers';
@@ -27,7 +27,7 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
   onScanAdded 
 }) => {
   const dispatch = useDispatch<AppDispatch>();
-  const { duplicateWarning, isLoading } = useSelector((state: RootState) => state.scans);
+  const { isLoading } = useSelector((state: RootState) => state.scans);
   const { scanner_connected } = useSelector((state: RootState) => state.app.appStatus);
   const { vibration_enabled, sound_enabled } = useSelector((state: RootState) => state.app.userPreferences);
   
@@ -59,16 +59,6 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
     };
   }, [manualMode]);
 
-  useEffect(() => {
-    // Clear duplicate warning after 3 seconds
-    if (duplicateWarning) {
-      const timer = setTimeout(() => {
-        dispatch(clearDuplicateWarning());
-      }, 3000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [duplicateWarning, dispatch]);
 
   const handleInputChange = (text: string) => {
     const currentTime = Date.now();
@@ -133,26 +123,35 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
         manualEntry: manual,
       })).unwrap();
 
+      // Show success indicator in input field
+      setInputValue(`✅ ${barcode}`);
+
       // Provide feedback
       if (vibration_enabled && Platform.OS === 'android') {
         Vibration.vibrate(100);
       }
 
-      if (result.isDuplicate) {
-        dispatch(showWarningMessage(`Duplicate scan: ${barcode}`));
-      } else {
-        dispatch(showSuccessMessage(`Scanned: ${barcode}`));
-      }
+      dispatch(showSuccessMessage(`Scanned: ${barcode}`));
 
       // Callback
       if (onScanAdded) {
         onScanAdded(barcode);
       }
 
+      // Clear input after showing success for 1.5 seconds
+      setTimeout(() => {
+        clearInput();
+      }, 1500);
+
     } catch (error: any) {
+      // Show error indicator in input field
+      setInputValue(`❌ ${barcode}`);
       dispatch(showWarningMessage(`Scan failed: ${error.message}`));
-    } finally {
-      clearInput();
+      
+      // Clear input after showing error for 2 seconds
+      setTimeout(() => {
+        clearInput();
+      }, 2000);
     }
   };
 
@@ -230,9 +229,6 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
           </Button>
         )}
 
-        {duplicateWarning && (
-          <Text style={styles.warningText}>{duplicateWarning}</Text>
-        )}
 
         <Text style={styles.helpText}>
           {manualMode 
@@ -285,12 +281,6 @@ const styles = StyleSheet.create({
   submitButton: {
     marginTop: 8,
     marginBottom: 12,
-  },
-  warningText: {
-    color: '#f57c00',
-    fontSize: 14,
-    marginBottom: 8,
-    textAlign: 'center',
   },
   helpText: {
     fontSize: 12,
