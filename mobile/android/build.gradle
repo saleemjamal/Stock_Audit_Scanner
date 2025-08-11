@@ -6,7 +6,8 @@ buildscript {
         minSdkVersion = 28
         compileSdkVersion = 34
         targetSdkVersion = 34
-        ndkVersion = "25.1.8937393"
+        ndkVersion = "23.1.7779620"  // React Native 0.73.2 compatible NDK
+        cmakeVersion = "3.22.1"      // Compatible CMake version
         kotlinVersion = "1.8.0"
         hermesEnabled = true
     }

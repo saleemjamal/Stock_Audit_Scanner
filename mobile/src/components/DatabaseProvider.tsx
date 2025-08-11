@@ -17,24 +17,32 @@ const DatabaseProvider: React.FC<DatabaseProviderProps> = ({ children }) => {
 
   useEffect(() => {
     const initializeDatabase = async () => {
+      console.log('📊 DatabaseProvider: Starting database initialization...');
+      
       try {
-        console.log('Initializing local database...');
+        console.log('📊 DatabaseProvider: Setting up timeout protection...');
         
         // Add timeout to prevent infinite loading (reduced to 10 seconds)
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Database initialization timeout after 10 seconds')), 10000);
+          setTimeout(() => {
+            console.error('⏰ DatabaseProvider: TIMEOUT after 10 seconds');
+            reject(new Error('Database initialization timeout after 10 seconds'));
+          }, 10000);
         });
         
+        console.log('📊 DatabaseProvider: Calling DatabaseService.initDatabase()...');
         await Promise.race([
           DatabaseService.initDatabase(),
           timeoutPromise
         ]);
         
-        console.log('Database initialized successfully');
+        console.log('🎉 DatabaseProvider: Database initialized successfully');
         dispatch(setDatabaseReady(true));
         setIsInitializing(false);
       } catch (error: any) {
-        console.error('Database initialization failed:', error);
+        console.error('💥 DatabaseProvider: Database initialization FAILED:', error);
+        console.error('💥 DatabaseProvider: Error details:', JSON.stringify(error, null, 2));
+        console.error('💥 DatabaseProvider: Error stack:', error.stack);
         
         // Continue without database but log the error
         console.warn('Continuing without local database. App will work with online-only mode.');

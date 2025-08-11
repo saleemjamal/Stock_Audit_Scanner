@@ -73,8 +73,8 @@ export const addScan = createAsyncThunk(
 
       // Return early for UI clearing (optimistic UI)
       const localScanResult = {
-        scan: { ...newScan, id: localScanId },
-        localId: localScanId,
+        scan: { ...newScan, id: localScanId.toString() }, // Convert to string for consistency
+        localId: localScanId.toString(),
         syncPending: true,
       };
 
