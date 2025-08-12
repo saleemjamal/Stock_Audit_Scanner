@@ -16,6 +16,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const dispatch = useDispatch<AppDispatch>();
   const { isLoading } = useSelector((state: RootState) => state.auth);
 
+
   useEffect(() => {
     // Initialize auth state with Supabase Auth
     dispatch(initializeAuth())

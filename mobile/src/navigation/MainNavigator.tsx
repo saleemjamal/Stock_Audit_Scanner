@@ -84,7 +84,7 @@ const MainNavigator: React.FC = () => {
         name="Scanning" 
         component={ScanningScreen}
         options={({ route }) => ({
-          title: `Scanning - ${route.params.rack.rack_number}`,
+          title: route.params?.rack?.rack_number ? `Scanning - ${route.params.rack.rack_number}` : 'Scanning',
           headerBackTitleVisible: false,
         })}
       />

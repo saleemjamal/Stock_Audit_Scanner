@@ -1,12 +1,3 @@
 module.exports = {
-  dependencies: {
-    '@op-engineering/op-sqlite': {
-      platforms: {
-        android: {
-          sourceDir: '../node_modules/@op-engineering/op-sqlite/android/',
-          packageImportPath: 'import com.op.sqlite.OPSQLitePackage;',
-        },
-      },
-    },
-  },
+  // No custom dependencies - using queue-based architecture instead of local database
 };

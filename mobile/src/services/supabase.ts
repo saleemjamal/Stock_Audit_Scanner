@@ -28,6 +28,35 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       eventsPerSecond: 10,
     },
   },
+  global: {
+    fetch: (url: RequestInfo | URL, options: RequestInit = {}) => {
+      // Add timeout to all Supabase fetch requests
+      const timeoutMs = 15000; // 15 second timeout to allow for slow network
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log('🚨 Supabase fetch timeout after', timeoutMs, 'ms for URL:', url);
+        controller.abort();
+      }, timeoutMs);
+
+      console.log('🌐 Supabase fetch starting for:', url);
+      const startTime = Date.now();
+
+      return fetch(url, {
+        ...options,
+        signal: controller.signal,
+      }).then(response => {
+        clearTimeout(timeoutId);
+        const elapsed = Date.now() - startTime;
+        console.log(`✅ Supabase fetch completed in ${elapsed}ms for:`, url);
+        return response;
+      }).catch(error => {
+        clearTimeout(timeoutId);
+        const elapsed = Date.now() - startTime;
+        console.error(`❌ Supabase fetch failed after ${elapsed}ms:`, error.message);
+        throw error;
+      });
+    },
+  },
 });
 
 // Helper functions for common database operations
@@ -39,30 +68,125 @@ export const supabaseHelpers = {
     return user;
   },
 
+  // Test Supabase connection
+  async testConnection() {
+    console.log('🏥 SupabaseHelper: Testing connection...');
+    console.log('🏥 Supabase URL:', supabaseUrl);
+    console.log('🏥 Supabase Key length:', supabaseAnonKey?.length || 0);
+    
+    const start = Date.now();
+    
+    try {
+      console.log('🏥 Making test query to locations table...');
+      const { data, error } = await supabase
+        .from('locations')
+        .select('id')
+        .limit(1);
+      
+      const elapsed = Date.now() - start;
+      
+      if (error) {
+        console.error(`🏥 SupabaseHelper: Connection test failed in ${elapsed}ms:`, {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+        throw error;
+      }
+      
+      console.log(`🏥 SupabaseHelper: Connection test successful in ${elapsed}ms, found ${data?.length || 0} locations`);
+      return true;
+    } catch (error: any) {
+      const elapsed = Date.now() - start;
+      console.error(`🏥 SupabaseHelper: Connection test failed in ${elapsed}ms:`, {
+        message: error.message,
+        stack: error.stack?.substring(0, 200),
+        name: error.name
+      });
+      throw error;
+    }
+  },
+
   // Get user profile
   async getUserProfile(userId: string) {
-    const { data, error } = await supabase
+    console.log('👤 SupabaseHelper: Getting user profile for:', userId);
+    const start = Date.now();
+    
+    const queryPromise = supabase
       .from('users')
       .select('*')
       .eq('id', userId)
       .single();
+      
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('getUserProfile query timeout')), 5000);
+    });
     
-    if (error) throw error;
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
+    
+    const elapsed = Date.now() - start;
+    
+    if (error) {
+      console.error(`👤 SupabaseHelper: getUserProfile failed in ${elapsed}ms:`, error);
+      throw error;
+    }
+    
+    console.log(`👤 SupabaseHelper: getUserProfile successful in ${elapsed}ms:`, {
+      hasData: !!data,
+      hasLocationIds: !!(data?.location_ids),
+      locationIdsCount: data?.location_ids?.length || 0
+    });
+    
     return data;
   },
 
   // Get locations for user
   async getUserLocations(userId: string) {
-    const profile = await this.getUserProfile(userId);
+    console.log('📍 SupabaseHelper: Getting locations for user:', userId);
+    const overallStart = Date.now();
     
-    const { data, error } = await supabase
-      .from('locations')
-      .select('*')
-      .in('id', profile.location_ids)
-      .eq('active', true);
-    
-    if (error) throw error;
-    return data;
+    try {
+      // Step 1: Get user profile
+      console.log('📍 Step 1: Getting user profile...');
+      const profileStart = Date.now();
+      const profile = await this.getUserProfile(userId);
+      console.log(`📍 Step 1 completed in ${Date.now() - profileStart}ms`);
+      
+      if (!profile.location_ids || profile.location_ids.length === 0) {
+        console.warn('📍 User has no location_ids assigned');
+        return [];
+      }
+      
+      // Step 2: Get locations
+      console.log('📍 Step 2: Getting locations for IDs:', profile.location_ids);
+      const locationsStart = Date.now();
+      
+      const { data, error } = await supabase
+        .from('locations')
+        .select('*')
+        .in('id', profile.location_ids)
+        .eq('active', true);
+      
+      const locationsElapsed = Date.now() - locationsStart;
+      
+      if (error) {
+        console.error(`📍 Step 2 failed in ${locationsElapsed}ms:`, error);
+        throw error;
+      }
+      
+      const totalElapsed = Date.now() - overallStart;
+      console.log(`📍 getUserLocations completed successfully in ${totalElapsed}ms:`, {
+        locationsFound: data?.length || 0,
+        locations: data?.map(l => ({ id: l.id, name: l.name })) || []
+      });
+      
+      return data;
+    } catch (error) {
+      const totalElapsed = Date.now() - overallStart;
+      console.error(`📍 getUserLocations failed in ${totalElapsed}ms:`, error);
+      throw error;
+    }
   },
 
   // Get active audit session for location

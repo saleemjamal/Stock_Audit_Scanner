@@ -44,31 +44,11 @@ export const loadAvailableRacks = createAsyncThunk(
   'racks/loadAvailableRacks',
   async (auditSessionId: string, { rejectWithValue }) => {
     try {
-      // Try to load from server first
-      try {
-        const racks = await supabaseHelpers.getAvailableRacks(auditSessionId);
-        console.log('🔍 RACK_SLICE_DEBUG: Racks fetched from Supabase:', racks?.length || 0);
-        
-        // TEMPORARILY SKIP CACHING - it seems to be causing issues
-        console.log('🔍 RACK_SLICE_DEBUG: Skipping cache for now to debug Redux issue');
-        
-        // TODO: Re-enable caching once Redux state update is working
-        // try {
-        //   for (const rack of racks) {
-        //     await DatabaseService.cacheRack(rack);
-        //   }
-        // } catch (cacheError) {
-        //   console.warn('Failed to cache racks:', cacheError);
-        // }
-        
-        console.log('🔍 RACK_SLICE_DEBUG: Returning racks to Redux:', racks);
-        return racks;
-      } catch (serverError) {
-        console.error('🔍 RACK_SLICE_DEBUG: Server error, falling back to cache:', serverError);
-        // Fallback to cached data
-        const cachedRacks = await DatabaseService.getCachedRacks(auditSessionId);
-        return cachedRacks.filter(rack => rack.status === 'available');
-      }
+      console.log('🔍 RACK_SLICE_DEBUG: Loading racks directly from Supabase...');
+      const racks = await supabaseHelpers.getAvailableRacks(auditSessionId);
+      console.log('🔍 RACK_SLICE_DEBUG: Racks fetched from Supabase:', racks?.length || 0);
+      
+      return racks;
     } catch (error: any) {
       console.error('🔍 RACK_SLICE_DEBUG: Fatal error in loadAvailableRacks:', error);
       return rejectWithValue(error.message);
@@ -87,25 +67,11 @@ export const loadUserRacks = createAsyncThunk(
         throw new Error('User not authenticated');
       }
 
-      // Try to load from server first
-      try {
-        const racks = await supabaseHelpers.getUserRacks(auditSessionId, userId);
-        
-        // Cache in background for offline support
-        setImmediate(() => {
-          racks.forEach(rack => {
-            DatabaseService.cacheRack(rack).catch(error => 
-              console.warn('Background caching failed for rack:', rack.id, error)
-            );
-          });
-        });
-        
-        return racks;
-      } catch (serverError) {
-        // Fallback to cached data when server unavailable
-        const cachedRacks = await DatabaseService.getCachedRacks(auditSessionId);
-        return cachedRacks.filter(rack => rack.scanner_id === userId);
-      }
+      console.log('🔍 RACK_SLICE_DEBUG: Loading user racks directly from Supabase...');
+      const racks = await supabaseHelpers.getUserRacks(auditSessionId, userId);
+      console.log('🔍 RACK_SLICE_DEBUG: User racks fetched from Supabase:', racks?.length || 0);
+      
+      return racks;
     } catch (error: any) {
       return rejectWithValue(error.message);
     }
@@ -123,42 +89,11 @@ export const assignRack = createAsyncThunk(
         throw new Error('User not authenticated');
       }
 
-      // Try to assign on server first
-      try {
-        const assignedRack = await supabaseHelpers.assignRack(rackId, userId);
-        
-        // Update local cache
-        await DatabaseService.updateRackStatus(rackId, 'assigned', {
-          scanner_id: userId,
-          assigned_at: new Date().toISOString(),
-        });
-        
-        return assignedRack;
-      } catch (serverError) {
-        // If server fails, update locally and queue for sync
-        await DatabaseService.updateRackStatus(rackId, 'assigned', {
-          scanner_id: userId,
-          assigned_at: new Date().toISOString(),
-        });
-
-        await DatabaseService.addToSyncQueue({
-          device_id: state.auth.user?.device_id || 'unknown',
-          data_type: 'rack_update',
-          payload: {
-            rackId,
-            action: 'assign',
-            userId,
-          },
-          status: 'pending',
-          retry_count: 0,
-        });
-
-        // Return the locally updated rack
-        const cachedRacks = await DatabaseService.getCachedRacks(state.racks.currentAuditSession?.id || '');
-        const updatedRack = cachedRacks.find(r => r.id === rackId);
-        
-        return updatedRack;
-      }
+      console.log('🔍 RACK_SLICE_DEBUG: Assigning rack directly via Supabase...');
+      const assignedRack = await supabaseHelpers.assignRack(rackId, userId);
+      console.log('🔍 RACK_SLICE_DEBUG: Rack assigned successfully:', assignedRack.id);
+      
+      return assignedRack;
     } catch (error: any) {
       return rejectWithValue(error.message);
     }

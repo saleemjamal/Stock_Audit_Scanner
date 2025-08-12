@@ -135,7 +135,7 @@ android {
         }
     }
     
-    // Pin CMake version for native builds (op-sqlite)
+    // Pin CMake version for native builds
     externalNativeBuild {
         cmake {
             version rootProject.ext.cmakeVersion

@@ -10,9 +10,10 @@ import {
 import { TextInput, Text, Button, Card } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { addScan } from '../store/slices/scanSlice';
 import { showSuccessMessage, showWarningMessage, updateLastActivity } from '../store/slices/appSlice';
+import { addScanToState } from '../store/slices/scanSlice';
 import { RootState, AppDispatch } from '../store';
+import { useScanQueue } from './ScanQueueProvider';
 import { isValidBarcode } from '../../../shared/utils/helpers';
 
 interface ScannerInputProps {
@@ -30,6 +31,7 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
   const { isLoading } = useSelector((state: RootState) => state.scans);
   const { scanner_connected } = useSelector((state: RootState) => state.app.appStatus);
   const { vibration_enabled, sound_enabled } = useSelector((state: RootState) => state.app.userPreferences);
+  const { addScan: addScanToQueue } = useScanQueue();
   
   const [inputValue, setInputValue] = useState('');
   const [manualMode, setManualMode] = useState(false);
@@ -115,15 +117,37 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
     dispatch(updateLastActivity());
 
     try {
-      const result = await dispatch(addScan({
+      console.log('🔍 ScannerInput: Processing scan:', barcode);
+      
+      // Add to scan queue (fast, async)
+      const scanId = await addScanToQueue({
         barcode,
-        rackId,
-        auditSessionId,
-        deviceId: 'device_' + Date.now(), // This should come from device info
-        manualEntry: manual,
-      })).unwrap();
+        rack_id: rackId,
+        audit_session_id: auditSessionId,
+        quantity: 1,
+        manual_entry: manual,
+        notes: '',
+      });
 
-      // Show success indicator in input field
+      console.log('✅ ScannerInput: Scan added to queue:', scanId);
+
+      // Optimistic UI: Add scan to Redux state immediately for UI updates
+      const optimisticScan = {
+        id: scanId,
+        barcode,
+        rack_id: rackId,
+        audit_session_id: auditSessionId,
+        quantity: 1,
+        manual_entry: manual,
+        notes: '',
+        created_at: new Date().toISOString(),
+        scanner_id: '', // Will be filled by queue system
+        device_id: '',  // Will be filled by queue system
+      };
+      
+      dispatch(addScanToState(optimisticScan));
+
+      // Show success indicator in input field (immediate feedback)
       setInputValue(`✅ ${barcode}`);
 
       // Provide feedback
@@ -131,7 +155,7 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
         Vibration.vibrate(100);
       }
 
-      dispatch(showSuccessMessage(`Scanned: ${barcode}`));
+      dispatch(showSuccessMessage(`Scan added: ${barcode}`));
 
       // Callback
       if (onScanAdded) {
@@ -144,9 +168,22 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
       }, 1500);
 
     } catch (error: any) {
+      console.error('💥 ScannerInput: Scan failed:', error);
+      
       // Show error indicator in input field
       setInputValue(`❌ ${barcode}`);
-      dispatch(showWarningMessage(`Scan failed: ${error.message}`));
+      
+      // Handle specific error types
+      let errorMessage = 'Scan failed';
+      if (error.message.includes('QUEUE_FULL')) {
+        errorMessage = 'Queue full - connect to internet';
+      } else if (error.message.includes('not authenticated')) {
+        errorMessage = 'Authentication required';  
+      } else {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
+      dispatch(showWarningMessage(errorMessage));
       
       // Clear input after showing error for 2 seconds
       setTimeout(() => {

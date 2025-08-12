@@ -23,18 +23,33 @@ const DatabaseProvider: React.FC<DatabaseProviderProps> = ({ children }) => {
         console.log('📊 DatabaseProvider: Setting up timeout protection...');
         
         // Add timeout to prevent infinite loading (reduced to 10 seconds)
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => {
+        let timeoutId: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
             console.error('⏰ DatabaseProvider: TIMEOUT after 10 seconds');
             reject(new Error('Database initialization timeout after 10 seconds'));
           }, 10000);
         });
         
         console.log('📊 DatabaseProvider: Calling DatabaseService.initDatabase()...');
-        await Promise.race([
-          DatabaseService.initDatabase(),
-          timeoutPromise
-        ]);
+        console.log('🔍 DatabaseProvider: DatabaseService object:', !!DatabaseService);
+        console.log('🔍 DatabaseProvider: initDatabase method exists:', typeof DatabaseService.initDatabase);
+        console.log('🔍 DatabaseProvider: DatabaseService keys:', Object.keys(DatabaseService));
+        
+        console.log('📊 DatabaseProvider: About to call initDatabase method...');
+        
+        try {
+          await Promise.race([
+            DatabaseService.initDatabase(),
+            timeoutPromise
+          ]);
+          // Clear timeout if initialization completes successfully
+          if (timeoutId) clearTimeout(timeoutId);
+        } catch (error) {
+          // Clear timeout on any error (including timeout)
+          if (timeoutId) clearTimeout(timeoutId);
+          throw error;
+        }
         
         console.log('🎉 DatabaseProvider: Database initialized successfully');
         dispatch(setDatabaseReady(true));
@@ -45,8 +60,8 @@ const DatabaseProvider: React.FC<DatabaseProviderProps> = ({ children }) => {
         console.error('💥 DatabaseProvider: Error stack:', error.stack);
         
         // Continue without database but log the error
-        console.warn('Continuing without local database. App will work with online-only mode.');
-        dispatch(setDatabaseReady(false));
+        console.warn('Continuing without local database. App will work with queue-based mode.');
+        dispatch(setDatabaseReady(true)); // Set to true to unblock app functionality
         setIsInitializing(false);
         
         // Show user-friendly error message

@@ -92,7 +92,7 @@ dashboard/src/
 
 ### Key Features
 1. **Google OAuth + Whitelisting**: Only pre-authorized users can access the system
-2. **Offline-First Mobile**: SQLite local storage with background sync
+2. **Offline-First Mobile**: op-sqlite local storage with WAL mode and background sync
 3. **USB Scanner Support**: Direct barcode input via USB OTG
 4. **Rack Approval Workflow**: Scanner → Ready for Approval → Supervisor Review
 5. **Real-time Updates**: Supabase subscriptions for live dashboard
@@ -215,28 +215,41 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 - ✅ **Scanner Input Visibility** - Shows scanned barcode with ✅/❌ indicators before auto-clearing
 - ✅ **Background Server Sync** - Non-blocking server operations with automatic retry queue
 
-🚨 **CRITICAL Performance Issue Identified (Aug 8, 2025)**:
-- **SQLite Performance Crisis**: Local database saves taking **60+ seconds per scan**
-- **System Impact**: Scanning workflow completely unusable for warehouse operations  
-- **Immediate Priority**: op-sqlite migration + batch operations (Enhancement #1 + #4)
-- **Status**: URGENT implementation required - current system blocked
+✅ **Complete Architecture Redesign (Aug 11, 2025)**:
+- **Problem Solved**: Eliminated cascading database performance issues from op-sqlite/SQLite
+- **New Architecture**: Queue-based system with direct API calls replacing complex local caching
+- **Key Components**:
+  - ScanQueueManager with in-memory queue and AsyncStorage ring buffer
+  - DirectApiSink for batch uploads with exponential backoff
+  - Client-side scan IDs (UUIDs) for idempotency
+  - Feature flag system for runtime switching (USE_LOCAL_DB)
+- **Performance**: Instant scan processing, 2-second or 50-scan batch uploads
+- **Reliability**: Crash-safe persistence, network-aware flushing, automatic retries
 
-🔄 **Current Testing Status**: 
-- **Mobile App**: Successfully installed and running on physical Android device ✅
-- **Authentication**: Google OAuth working with proper whitelisting on both platforms ✅
-- **Scanning**: Barcode scanning reads correctly but **CRITICAL PERFORMANCE ISSUE** ❌
-- **Database**: SQLite saves taking 60+ seconds - **SYSTEM BLOCKED** ❌
-- **UI/UX**: Optimistic UI and visual feedback working properly ✅
-- **Background Sync**: Server sync and retry queue working ✅
+🎯 **Queue System Features Implemented (Aug 11, 2025)**:
+- ✅ **ScanSink Interface** - Pluggable data persistence strategies
+- ✅ **DirectApiSink** - Direct Supabase uploads with chunking and retry logic
+- ✅ **PersistentQueue** - AsyncStorage ring buffer for crash recovery
+- ✅ **ScanQueueManager** - Central coordinator with single-flight flush pattern
+- ✅ **QueueStatusBadge** - Real-time UI feedback for queue status
+- ✅ **Optimistic UI** - Immediate visual feedback with background sync
+- ✅ **Network Awareness** - Auto-flush when connectivity restored
+- ✅ **AppState Integration** - Flush on app foreground/background
+- ✅ **Backpressure Handling** - Queue size limits with warnings
 
-📋 **URGENT Next Steps**: 
-1. **🔴 CRITICAL: Fix SQLite Performance** - 60+ second saves make system unusable
-   - Investigate database corruption/locks immediately
-   - Implement op-sqlite migration (Enhancement #1)
-   - Implement batch operations (Enhancement #4)
-2. **Emergency Fallback**: True optimistic UI (clear input regardless of DB performance)
-3. **USB Scanner Testing** - Test physical USB barcode scanner (once DB performance fixed)
-4. **Complete Dashboard Components** - Finish LocationStats and RecentActivity components
+🔄 **Current System Status**: 
+- **Architecture**: Queue-based scanning with direct API calls ✅
+- **Mobile App**: Running on physical device with instant scan response ✅
+- **Queue System**: Batch processing every 2 seconds or 50 scans ✅
+- **Persistence**: AsyncStorage ring buffer for offline capability ✅
+- **UI Feedback**: Real-time queue status and visual indicators ✅
+- **Error Handling**: Exponential backoff with automatic retries ✅
+
+📋 **Immediate Next Steps**: 
+1. **USB Scanner Testing** - Validate physical barcode scanner with new queue system
+2. **Volume Testing** - Verify queue performance under rapid scanning (100+ scans/minute)
+3. **Network Resilience** - Test offline→online transition and sync recovery
+4. **Production Deployment** - Firebase App Distribution for team testing
 
 📋 **Future Enhancements Documented**: 
 1. **User-Controlled Duplicate Handling** - Last 5 scans with swipe-to-delete (see `docs/Future Enhancements/0808_Duplicate_Handling.md`)
@@ -297,16 +310,23 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
   - Proper network setup for React Native development
 - **Result**: Mobile app running on physical device while keeping USB port available for scanner testing
 
-### 9. SQLite Performance Crisis (CRITICAL - URGENT)
-- **Problem**: Local database saves taking **60+ seconds per scan** - completely unusable for warehouse operations
-- **Suspected Causes**: 
-  - Database corruption or file system locks
-  - `react-native-sqlite-storage` performance limitations
-  - No WAL mode or transaction optimization
-  - Potential Android storage permissions issues
-- **Impact**: Scanning workflow completely blocked, system unusable
-- **Solution**: Immediate implementation of Enhancement #1 (op-sqlite) + #4 (batch operations)
-- **Status**: **CRITICAL BLOCKER** - requires immediate attention before further testing
+### 9. SQLite Performance Crisis (REPLACED WITH QUEUE SYSTEM - Aug 11, 2025)
+- **Original Problem**: Local database saves taking 60+ seconds per scan
+- **Attempted Fix**: Migrated to op-sqlite, but still had initialization issues
+- **Final Solution**: Complete architecture redesign - replaced local database with queue system
+  - Removed all local database caching logic
+  - Implemented in-memory queue with AsyncStorage backup
+  - Direct API calls with batch uploads
+  - Feature flag to disable database entirely (USE_LOCAL_DB: false)
+- **Result**: Instant scan processing, no database bottlenecks
+- **Status**: **RESOLVED** - Using queue-based architecture instead of local database
+
+### 10. Node.js Module Dependencies (RESOLVED - Aug 11, 2025)
+- **Problem**: React Native missing Node.js modules (`events`, `uuid`)
+- **Solution**:
+  - Installed `uuid` package for React Native
+  - Created custom SimpleEventEmitter for React Native (replaced Node.js EventEmitter)
+- **Files Modified**: `mobile/src/services/scanQueue/ScanQueueManager.ts`
 
 ### Platform Considerations
 - **Windows Development**: Use `cd android && gradlew` (without ./)
@@ -354,3 +374,4 @@ VALUES (
   (SELECT id FROM users WHERE username = 'saleem')
 );
 ```
+- please give very concise answers going forward

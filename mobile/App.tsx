@@ -52,12 +52,15 @@ import AppNavigator from './src/navigation/AppNavigator';
 import AuthProvider from './src/components/AuthProvider';
 import SyncManager from './src/components/SyncManager';
 import DatabaseProvider from './src/components/DatabaseProvider';
+import { ScanQueueProvider } from './src/components/ScanQueueProvider';
 import NotificationProvider from './src/components/NotificationProvider';
 import { theme } from './src/utils/theme';
+import { config } from './src/config/features';
 
 const App: React.FC = () => {
   useEffect(() => {
     console.log('🚀 App.tsx: Starting app initialization...');
+    console.log(`📊 App.tsx: Local database mode: ${config.USE_LOCAL_DB ? 'ENABLED' : 'DISABLED (queue-only mode)'}`);
     
     // Set status bar style
     try {
@@ -69,28 +72,38 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Conditional database provider based on feature flag
+  const DatabaseWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (config.USE_LOCAL_DB) {
+      return <DatabaseProvider>{children}</DatabaseProvider>;
+    }
+    return <>{children}</>;
+  };
+
   return (
     <View style={{ flex: 1 }}>
       <StoreProvider store={store}>
         <PaperProvider theme={theme}>
-          <DatabaseProvider>
+          <DatabaseWrapper>
             <AuthProvider>
-              <SyncManager>
-                <NotificationProvider>
-                  <StatusBar 
-                    barStyle="dark-content" 
-                    backgroundColor="#ffffff" 
-                    translucent={false}
-                  />
-                  <AppNavigator />
-                  <FlashMessage 
-                    position="top" 
-                    style={{ paddingTop: StatusBar.currentHeight }}
-                  />
-                </NotificationProvider>
-              </SyncManager>
+              {/* <SyncManager> */}
+                <ScanQueueProvider>
+                  <NotificationProvider>
+                    <StatusBar 
+                      barStyle="dark-content" 
+                      backgroundColor="#ffffff" 
+                      translucent={false}
+                    />
+                    <AppNavigator />
+                    <FlashMessage 
+                      position="top" 
+                      style={{ paddingTop: StatusBar.currentHeight }}
+                    />
+                  </NotificationProvider>
+                </ScanQueueProvider>
+              {/* </SyncManager> */}
             </AuthProvider>
-          </DatabaseProvider>
+          </DatabaseWrapper>
         </PaperProvider>
       </StoreProvider>
     </View>

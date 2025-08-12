@@ -43,15 +43,25 @@ const RackSelectionScreen: React.FC<RackSelectionScreenProps> = ({ route, naviga
 
   const loadInitialData = async () => {
     try {
+      console.log('🔍 RackSelection: Starting to load initial data for location:', location.id);
+      
       // Load audit session first
+      console.log('🔍 RackSelection: Loading audit session...');
+      const startTime = performance.now();
       const auditSession = await dispatch(loadAuditSession(location.id)).unwrap();
+      console.log(`✅ RackSelection: Audit session loaded in ${(performance.now() - startTime).toFixed(2)}ms`, auditSession);
       
       // Then load racks
+      console.log('🔍 RackSelection: Loading racks for session:', auditSession.id);
+      const racksStartTime = performance.now();
       await Promise.all([
         dispatch(loadAvailableRacks(auditSession.id)),
         dispatch(loadUserRacks(auditSession.id)),
       ]);
+      console.log(`✅ RackSelection: Racks loaded in ${(performance.now() - racksStartTime).toFixed(2)}ms`);
     } catch (error: any) {
+      console.error('💥 RackSelection: Failed to load initial data:', error);
+      console.error('💥 RackSelection: Error details:', error.message, error.stack);
       dispatch(showErrorMessage(error.message));
     }
   };

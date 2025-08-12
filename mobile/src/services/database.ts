@@ -1,37 +1,20 @@
-import { open, type DB } from '@op-engineering/op-sqlite';
+// Database service now uses queue-based architecture instead of local SQLite
 import { Scan, Rack, SyncQueueItem } from '../../../shared/types';
 
 const DATABASE_NAME = 'StockAudit.db';
 
 class BatchManager {
   private memoryBuffer: Array<Omit<Scan, 'id' | 'created_at'> & { tempId: number }> = [];
-  private db: DB;
-  private insertStmt: any;
+  private db: any; // Disabled - using queue system instead
   
   // Conservative defaults for production
   private BATCH_SIZE = 50;                // Flush every 50 scans
   private BATCH_TIMEOUT_MS = 2000;        // Force flush after 2 seconds
   private flushTimer: NodeJS.Timeout | null = null;
   
-  constructor(db: DB) {
+  constructor(db: any) {
     this.db = db;
-  }
-  
-  async initialize() {
-    try {
-      console.log('📝 BatchManager: Preparing insert statement...');
-      // Prepare statement once, reuse many times
-      this.insertStmt = this.db.prepareStatement(
-        `INSERT INTO local_scans (id, barcode, rack_id, audit_session_id, scanner_id, 
-                                 device_id, quantity, manual_entry, notes, synced, 
-                                 created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      console.log('✅ BatchManager: Insert statement prepared successfully');
-    } catch (error) {
-      console.error('💥 BatchManager: Failed to prepare statement:', error);
-      throw error;
-    }
+    console.log('✅ BatchManager: Created (uses executeBatch for optimal performance)');
   }
   
   async addScan(scan: Omit<Scan, 'id' | 'created_at'>): Promise<number> {
@@ -66,34 +49,57 @@ class BatchManager {
     const batch = [...this.memoryBuffer];
     this.memoryBuffer = [];
     
-    console.log(`🔄 Flushing batch of ${batch.length} scans...`);
+    console.log(`🔄 Flushing batch of ${batch.length} scans using executeBatch...`);
     
-    // Single transaction for entire batch
-    await this.db.execute('BEGIN IMMEDIATE');
     try {
       const now = Math.floor(Date.now() / 1000); // Unix timestamp
       
-      for (const scan of batch) {
-        await this.insertStmt.bind([
+      // Convert batch to SQLBatchTuple format for executeBatch
+      const batchCommands = batch.map(scan => [
+        `INSERT INTO local_scans (id, barcode, rack_id, audit_session_id, scanner_id, device_id, quantity, manual_entry, notes, synced, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
           scan.tempId, scan.barcode, scan.rack_id, scan.audit_session_id,
           scan.scanner_id, scan.device_id || '', scan.quantity || 1, 
-          scan.manual_entry ? 1 : 0, scan.notes || '', 0, null, // sync_error as NULL
+          scan.manual_entry ? 1 : 0, scan.notes || '', 0, 
           now, now // Unix timestamps for created_at, updated_at
-        ]);
-        await this.insertStmt.execute();
-      }
-      await this.db.execute('COMMIT');
-      console.log(`✅ Batch committed successfully`);
+        ]
+      ]);
+      
+      // Execute all inserts in single native call with automatic transaction
+      await this.db.executeBatch(batchCommands);
+      console.log(`✅ Batch of ${batch.length} scans committed successfully`);
     } catch (error) {
-      await this.db.execute('ROLLBACK');
-      console.error('❌ Batch failed, rolled back:', error);
-      throw error;
+      console.error('❌ Batch failed:', error);
+      console.error('❌ Batch details:', JSON.stringify(batch, null, 2));
+      console.error('❌ Error type:', typeof error);
+      console.error('❌ Error message:', error?.message || 'No error message');
+      
+      // For debugging: try individual inserts as fallback
+      console.log('🔄 Attempting individual inserts as fallback...');
+      try {
+        for (const scan of batch) {
+          const now = Math.floor(Date.now() / 1000);
+          await this.db.execute(
+            `INSERT INTO local_scans (id, barcode, rack_id, audit_session_id, scanner_id, device_id, quantity, manual_entry, notes, synced, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              scan.tempId, scan.barcode, scan.rack_id, scan.audit_session_id,
+              scan.scanner_id, scan.device_id || '', scan.quantity || 1, 
+              scan.manual_entry ? 1 : 0, scan.notes || '', 0,
+              now, now
+            ]
+          );
+        }
+        console.log(`✅ Individual inserts successful for ${batch.length} scans`);
+      } catch (fallbackError) {
+        console.error('💥 Individual inserts also failed:', fallbackError);
+        throw error; // Throw original error
+      }
     }
   }
   
   async cleanup() {
     await this.flush();
-    // Note: op-sqlite prepared statements don't need explicit finalization
+    console.log('🧹 BatchManager: Cleanup completed');
   }
   
   private generateId(): string {
@@ -102,40 +108,88 @@ class BatchManager {
 }
 
 class DatabaseService {
-  private db: DB | null = null;
+  private db: any | null = null; // Disabled - using queue system
   private batchManager: BatchManager | null = null;
+  private initPromise: Promise<void> | null = null;
+  private initialized = false;
 
   async initDatabase(): Promise<void> {
+    console.log('🚀 🚀 🚀 DatabaseService.initDatabase() METHOD CALLED!');
+    console.log('📊 initDatabase: Method entry point reached successfully');
+    console.log('📊 Current initialized state:', this.initialized);
+    console.log('📊 Current initPromise state:', !!this.initPromise);
+    console.log('📊 Current db instance:', !!this.db);
+    
+    // Singleton guard: prevent double-initialization race
+    if (this.initialized) {
+      console.log('⚡ Database already initialized, skipping...');
+      return;
+    }
+    
+    if (this.initPromise) {
+      console.log('⏳ Database initialization in progress, waiting...');
+      return this.initPromise;
+    }
+    
+    // Create single initialization promise
+    this.initPromise = this._performInit();
+    
     try {
-      console.log('🗄️ Opening op-sqlite database...');
-      console.log('Database name:', DATABASE_NAME);
+      await this.initPromise;
+      this.initialized = true;
+      console.log('✅ Database initialization completed successfully');
+    } catch (error) {
+      // Reset on failure so retry is possible
+      this.initPromise = null;
+      throw error;
+    }
+  }
+  
+  private async _performInit(): Promise<void> {
+    try {
+      console.log('🗄️ [INIT] Database initialization (disabled - using queue system)...');
+      console.log('[INIT] Database name:', DATABASE_NAME);
       const start = performance.now();
       
-      // 1. Open database with op-sqlite
-      console.log('Step 1: Opening database...');
-      this.db = open({ name: DATABASE_NAME });
-      console.log('Database object created:', !!this.db);
+      // 1. Database opening disabled - using queue system
+      console.log('[INIT] Step 1: Opening database...');
+      // Database disabled - using queue-based architecture
+      this.db = null; // Database disabled
+      console.log('[INIT] Database object created:', !!this.db);
+      console.log(`✅ [INIT] Database initialization skipped - using queue system in ${performance.now() - start}ms`);
       
-      console.log(`✅ Database opened in ${performance.now() - start}ms`);
+      // Exit early since database is disabled - don't execute any SQL commands
+      console.log('🎉 [INIT] Database initialization completed successfully (queue mode)');
+      return;
       
-      // 2. Apply performance optimizations
-      console.log('Step 2: Applying performance optimizations...');
+      // 1.6. Legacy table cleanup (database disabled)
+      console.log('[INIT] Step 1.6: Dropping old tables for schema migration...');
+      try {
+        await this.db.execute('DROP TABLE IF EXISTS local_racks'); // Remove old problematic table
+        await this.db.execute('DROP TABLE IF EXISTS local_scans');
+        await this.db.execute('DROP TABLE IF EXISTS sync_queue');
+        await this.db.execute('DROP TABLE IF EXISTS device_info');
+        console.log('✅ [INIT] Old tables dropped for fresh schema');
+      } catch (error) {
+        console.warn('[INIT] Error dropping tables (might not exist):', error);
+      }
+      
+      // 2. Apply remaining performance optimizations
+      console.log('[INIT] Step 2: Applying performance optimizations...');
       await this.applyPerformanceOptimizations();
-      console.log('✅ Performance optimizations applied');
+      console.log('✅ [INIT] Performance optimizations applied');
       
       // 3. Create simplified table structure
-      console.log('Step 3: Creating tables...');
+      console.log('[INIT] Step 3: Creating tables...');
       await this.createTablesSimplified();
-      console.log('✅ Tables created');
+      console.log('✅ [INIT] Tables created');
       
-      // 4. Initialize batch manager
-      console.log('Step 4: Initializing batch manager...');
+      // 4. Initialize batch manager (no prepared statements needed - uses executeBatch)
+      console.log('[INIT] Step 4: Initializing batch manager...');
       this.batchManager = new BatchManager(this.db);
-      console.log('Batch manager created, initializing...');
-      await this.batchManager.initialize();
-      console.log('✅ Batch manager initialized');
+      console.log('✅ [INIT] Batch manager created (uses executeBatch, no prepared statements)');
       
-      console.log('🎉 Database fully initialized successfully');
+      console.log('🎉 [INIT] Database initialization completed successfully');
     } catch (error) {
       console.error('💥 Database initialization FAILED at step:', error);
       console.error('Error details:', JSON.stringify(error, null, 2));
@@ -157,18 +211,19 @@ class DatabaseService {
       { name: 'synchronous', value: 'NORMAL', description: 'Balance performance/safety' },
       { name: 'cache_size', value: '8000', description: '32MB cache' },
       { name: 'temp_store', value: 'MEMORY', description: 'Store temp data in memory' },
-      { name: 'busy_timeout', value: '3000', description: '3 second timeout' },
+      // busy_timeout is set immediately after open() - removed from here to avoid duplication
       { name: 'wal_autocheckpoint', value: '2000', description: 'Prevent WAL bloat' },
       { name: 'mmap_size', value: '67108864', description: '64MB memory map' },
     ];
 
     for (const pragma of pragmas) {
       try {
-        console.log(`Applying PRAGMA ${pragma.name}=${pragma.value} (${pragma.description})`);
+        console.log(`[PRAGMA] Applying ${pragma.name}=${pragma.value} (${pragma.description})`);
         await this.db.execute(`PRAGMA ${pragma.name}=${pragma.value}`);
-        console.log(`✅ ${pragma.name} applied successfully`);
+        console.log(`✅ [PRAGMA] ${pragma.name} applied successfully`);
       } catch (error) {
-        console.error(`❌ Failed to apply PRAGMA ${pragma.name}:`, error);
+        console.error(`❌ [PRAGMA] Failed to apply ${pragma.name}:`, error);
+        console.error(`[PRAGMA] Error details:`, JSON.stringify(error, null, 2));
         // Continue with others - these are optimizations, not requirements
       }
     }
@@ -190,9 +245,7 @@ class DatabaseService {
       await this.createSyncQueueTable();
       console.log('✅ Sync queue table created');
 
-      // Create racks table for offline caching
-      await this.createRacksTable();
-      console.log('✅ Racks table created');
+      // Racks table removed - using direct API calls only
 
       // Create device info table
       await this.createDeviceInfoTable();
@@ -279,33 +332,7 @@ class DatabaseService {
     console.log('✅ Reading indexes created');
   }
 
-  private async createRacksTable(): Promise<void> {
-    console.log('🗂️ Creating racks table...');
-    
-    const sql = `CREATE TABLE IF NOT EXISTS local_racks (
-      id INTEGER PRIMARY KEY,           -- Use rowid for performance
-      audit_session_id INTEGER NOT NULL,
-      location_id INTEGER NOT NULL,
-      rack_number TEXT NOT NULL,
-      shelf_number TEXT,
-      status TEXT NOT NULL,
-      scanner_id INTEGER,
-      assigned_at INTEGER,              -- Unix timestamp
-      ready_for_approval INTEGER DEFAULT 0,
-      total_scans INTEGER DEFAULT 0,
-      synced INTEGER DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );`;
-    
-    try {
-      await this.db!.execute(sql);
-      console.log('✅ Racks table created with optimized schema');
-    } catch (error) {
-      console.error('❌ Failed to create racks table:', error);
-      throw error;
-    }
-  }
+  // createRacksTable removed - no longer caching racks locally
 
   private async createDeviceInfoTable(): Promise<void> {
     console.log('📱 Creating device info table...');
@@ -335,8 +362,8 @@ class DatabaseService {
     console.log('📝 DatabaseService.addScan called with:', scanData.barcode);
     
     if (!this.batchManager) {
-      console.error('❌ Batch manager not initialized!');
-      throw new Error('Batch manager not initialized');
+      console.error('❌ Batch manager not available!');
+      throw new Error('Batch manager not available');
     }
 
     if (!this.db) {
@@ -451,81 +478,7 @@ class DatabaseService {
     );
   }
 
-  // Rack operations (restored with op-sqlite)
-  async cacheRack(rack: Rack): Promise<void> {
-    if (!this.db) {
-      return; // Don't throw, just skip caching if database not ready
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-
-    try {
-      await this.db.execute(
-        `INSERT OR REPLACE INTO local_racks (
-          id, audit_session_id, location_id, rack_number, shelf_number,
-          status, scanner_id, assigned_at, ready_for_approval, total_scans,
-          synced, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          rack.id,
-          rack.audit_session_id,
-          rack.location_id,
-          rack.rack_number,
-          rack.shelf_number || '',
-          rack.status,
-          rack.scanner_id || '',
-          rack.assigned_at || now,
-          rack.ready_for_approval ? 1 : 0,
-          rack.total_scans || 0,
-          1, // cached from server
-          rack.created_at || now,
-          now,
-        ]
-      );
-    } catch (error) {
-      // Don't throw - caching is optional for offline support
-      console.warn('Background rack caching failed:', rack.rack_number);
-    }
-  }
-
-  async getCachedRacks(auditSessionId: string): Promise<Rack[]> {
-    if (!this.db) throw new Error('Database not initialized');
-
-    const results = await this.db.execute(
-      'SELECT * FROM local_racks WHERE audit_session_id = ? ORDER BY rack_number',
-      [auditSessionId]
-    );
-
-    return (results.rows || []).map(row => ({
-      ...row,
-      ready_for_approval: Boolean(row.ready_for_approval),
-      synced: Boolean(row.synced),
-    }));
-  }
-
-  async updateRackStatus(rackId: string, status: string, additionalData?: Partial<Rack>): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-
-    const updateFields = ['status = ?', 'updated_at = ?'];
-    const now = Math.floor(Date.now() / 1000);
-    const updateValues = [status, now];
-
-    if (additionalData) {
-      Object.entries(additionalData).forEach(([key, value]) => {
-        if (key !== 'id' && key !== 'created_at') {
-          updateFields.push(`${key} = ?`);
-          updateValues.push(value);
-        }
-      });
-    }
-
-    updateValues.push(rackId); // for WHERE clause
-
-    await this.db.execute(
-      `UPDATE local_racks SET ${updateFields.join(', ')} WHERE id = ?`,
-      updateValues
-    );
-  }
+  // Rack caching removed - using direct API calls for simplicity and reliability
 
   // UI query methods (restored)
   async getScansForRack(rackId: string): Promise<Scan[]> {

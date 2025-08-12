@@ -8,8 +8,11 @@ import {
   setPendingItemsCount 
 } from '../store/slices/syncSlice';
 import { updateLastActivity } from '../store/slices/appSlice';
-import DatabaseService from '../services/database';
 import { RootState, AppDispatch } from '../store';
+import { config } from '../config/features';
+
+// Only import DatabaseService if using local DB
+const DatabaseService = config.USE_LOCAL_DB ? require('../services/database').default : null;
 
 interface SyncManagerProps {
   children: ReactNode;
@@ -33,8 +36,8 @@ const SyncManager: React.FC<SyncManagerProps> = ({ children }) => {
       if (nextAppState === 'active') {
         dispatch(updateLastActivity());
         
-        // Sync when app becomes active
-        if (isOnline && isAuthenticated && database_ready && !isSyncing) {
+        // Only sync if using local database mode
+        if (config.USE_LOCAL_DB && isOnline && isAuthenticated && database_ready && !isSyncing) {
           dispatch(syncAllPendingData());
         }
       }
@@ -48,7 +51,8 @@ const SyncManager: React.FC<SyncManagerProps> = ({ children }) => {
   }, [dispatch, isOnline, isAuthenticated, database_ready, isSyncing]);
 
   useEffect(() => {
-    // Set up periodic sync
+    // Set up periodic sync - only for local database mode
+    if (!config.USE_LOCAL_DB) return;
     if (!isAuthenticated || !database_ready) return;
 
     const syncInterval = setInterval(() => {
@@ -63,8 +67,14 @@ const SyncManager: React.FC<SyncManagerProps> = ({ children }) => {
   }, [dispatch, isOnline, isSyncing, isAuthenticated, database_ready]);
 
   useEffect(() => {
-    // Update pending items count periodically
-    if (!database_ready) return;
+    // Update pending items count periodically - only for local database mode
+    if (!config.USE_LOCAL_DB) {
+      // In queue-only mode, set pending items to 0
+      dispatch(setPendingItemsCount(0));
+      return;
+    }
+    
+    if (!database_ready || !DatabaseService) return;
 
     const updatePendingCount = async () => {
       try {
@@ -87,7 +97,9 @@ const SyncManager: React.FC<SyncManagerProps> = ({ children }) => {
   }, [dispatch, database_ready]);
 
   useEffect(() => {
-    // Perform initial sync when conditions are met
+    // Perform initial sync when conditions are met - only for local database mode
+    if (!config.USE_LOCAL_DB) return;
+    
     if (isOnline && isAuthenticated && database_ready && !isSyncing && pendingItems > 0) {
       // Delay initial sync by 2 seconds to allow UI to settle
       const timer = setTimeout(() => {

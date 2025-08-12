@@ -8,7 +8,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { MainStackParamList } from '../../navigation/MainNavigator';
 import { RootState, AppDispatch } from '../../store';
 import { setSelectedLocation, showErrorMessage } from '../../store/slices/appSlice';
-import { supabaseHelpers } from '../../services/supabase';
+import { supabaseHelpers, supabase } from '../../services/supabase';
 import { signOut } from '../../store/slices/authSlice';
 import { Location } from '../../../../shared/types';
 
@@ -26,20 +26,98 @@ const LocationSelectionScreen: React.FC = () => {
   const [userLocations, setUserLocations] = React.useState<Location[]>([]);
 
   useEffect(() => {
-    loadUserLocations();
+    console.log('🔍 LocationSelection: useEffect triggered, user changed:', {
+      hasUser: !!user,
+      email: user?.email,
+      id: user?.id
+    });
+    
+    if (user) {
+      loadUserLocations();
+    } else {
+      console.log('🔍 LocationSelection: No user, skipping location load');
+      setLoading(false);
+    }
   }, [user]);
 
   const loadUserLocations = async () => {
-    if (!user) return;
+    const startTime = Date.now();
+    console.log('🔍 LocationSelection: loadUserLocations called, user =', user?.email);
+    console.log('🔍 LocationSelection: User object details:', {
+      id: user?.id,
+      email: user?.email,
+      role: user?.role,
+      hasUser: !!user
+    });
+    
+    if (!user) {
+      console.log('❌ LocationSelection: No user available, skipping location load');
+      setLoading(false);
+      return;
+    }
+
+    if (!user.id) {
+      console.log('❌ LocationSelection: User missing ID field');
+      dispatch(showErrorMessage('Authentication error: User ID missing'));
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
-      const locations = await supabaseHelpers.getUserLocations(user.id);
-      setUserLocations(locations);
+      
+      // Skip problematic tests - just load locations directly with Supabase client (has timeout now)
+      console.log('🔍 LocationSelection: Loading locations with Supabase client (timeout enabled)...');
+      
+      console.log('🔍 LocationSelection: Starting location fetch for user ID:', user.id);
+      
+      // Bypass problematic helper - load locations directly since we have user.location_ids
+      console.log('🔍 LocationSelection: User has location_ids:', user.location_ids);
+      
+      if (!user.location_ids || user.location_ids.length === 0) {
+        console.warn('❌ User has no location_ids assigned');
+        setUserLocations([]);
+        return;
+      }
+      
+      // Load locations directly using the location_ids from user profile
+      console.log('🔍 LocationSelection: Loading locations directly by IDs:', user.location_ids);
+      const { data: locations, error } = await supabase
+        .from('locations')
+        .select('*')
+        .in('id', user.location_ids)
+        .eq('active', true);
+      
+      if (error) {
+        console.error('❌ LocationSelection: Direct locations query failed:', error);
+        throw new Error(`Failed to load locations: ${error.message}`);
+      }
+      
+      const elapsed = Date.now() - startTime;
+      console.log(`✅ LocationSelection: Locations loaded successfully in ${elapsed}ms:`, locations);
+      
+      setUserLocations(locations || []);
     } catch (error: any) {
-      dispatch(showErrorMessage(`Failed to load locations: ${error.message}`));
+      const elapsed = Date.now() - startTime;
+      console.error(`💥 LocationSelection: Failed to load locations after ${elapsed}ms:`, error);
+      console.error('💥 Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack?.substring(0, 200)
+      });
+      
+      // More specific error messages
+      if (error.message?.includes('connection')) {
+        dispatch(showErrorMessage('Cannot connect to server. Please check your internet connection.'));
+      } else if (error.message?.includes('timeout')) {
+        dispatch(showErrorMessage('Request timed out. Please try again.'));
+      } else {
+        dispatch(showErrorMessage(`Failed to load locations: ${error.message}`));
+      }
     } finally {
       setLoading(false);
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 LocationSelection: loadUserLocations completed in ${totalTime}ms`);
     }
   };
 
