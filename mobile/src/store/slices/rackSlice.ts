@@ -104,54 +104,25 @@ export const markRackReady = createAsyncThunk(
   'racks/markRackReady',
   async (rackId: string, { getState, rejectWithValue }) => {
     try {
+      console.log('✅ RackSlice: markRackReady starting for:', rackId);
       const state = getState() as RootState;
 
-      // Get current scan count for validation
-      const scanCount = await DatabaseService.getScanCountForRack(rackId);
+      // Get scan count from Redux state instead of local database
+      const scanCount = state.scans.scanCount;
+      console.log('✅ RackSlice: Current scan count from Redux:', scanCount);
       
       if (scanCount === 0) {
         throw new Error('Cannot mark empty rack as ready for approval');
       }
 
-      // Try to mark ready on server first
-      try {
-        const updatedRack = await supabaseHelpers.markRackReady(rackId);
-        
-        // Update local cache
-        await DatabaseService.updateRackStatus(rackId, 'ready_for_approval', {
-          ready_for_approval: true,
-          ready_at: new Date().toISOString(),
-          total_scans: scanCount,
-        });
-        
-        return updatedRack;
-      } catch (serverError) {
-        // If server fails, update locally and queue for sync
-        await DatabaseService.updateRackStatus(rackId, 'ready_for_approval', {
-          ready_for_approval: true,
-          ready_at: new Date().toISOString(),
-          total_scans: scanCount,
-        });
-
-        await DatabaseService.addToSyncQueue({
-          device_id: state.auth.user?.device_id || 'unknown',
-          data_type: 'rack_update',
-          payload: {
-            rackId,
-            action: 'mark_ready',
-            scanCount,
-          },
-          status: 'pending',
-          retry_count: 0,
-        });
-
-        // Return the locally updated rack
-        const cachedRacks = await DatabaseService.getCachedRacks(state.racks.currentAuditSession?.id || '');
-        const updatedRack = cachedRacks.find(r => r.id === rackId);
-        
-        return updatedRack;
-      }
+      // Mark ready on server (simplified - no local database calls)
+      console.log('✅ RackSlice: Calling supabaseHelpers.markRackReady...');
+      const updatedRack = await supabaseHelpers.markRackReady(rackId);
+      
+      console.log('✅ RackSlice: markRackReady successful:', updatedRack);
+      return updatedRack;
     } catch (error: any) {
+      console.error('❌ RackSlice: markRackReady failed:', error);
       return rejectWithValue(error.message);
     }
   }

@@ -151,13 +151,31 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
   };
 
   const confirmMarkReady = async () => {
+    console.log('✅ ReviewScreen: Starting confirmMarkReady process...');
+    console.log('✅ ReviewScreen: Rack data:', {
+      rackId: rack.id,
+      rackNumber: rack.rack_number,
+      currentStatus: rack.status,
+      scanCount: scanCount
+    });
+    
     try {
-      await dispatch(markRackReady(rack.id)).unwrap();
+      console.log('✅ ReviewScreen: Dispatching markRackReady action...');
+      const result = await dispatch(markRackReady(rack.id)).unwrap();
+      console.log('✅ ReviewScreen: markRackReady successful:', result);
+      
       dispatch(showSuccessMessage('Rack marked as ready for approval'));
       
       // Navigate back to rack selection
+      console.log('✅ ReviewScreen: Navigating back to RackSelection...');
       navigation.navigate('RackSelection', { location });
     } catch (error: any) {
+      console.error('❌ ReviewScreen: markRackReady failed:', {
+        error: error,
+        message: error.message,
+        stack: error.stack,
+        rackId: rack.id
+      });
       dispatch(showErrorMessage(`Failed to mark rack ready: ${error.message}`));
     }
   };

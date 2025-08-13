@@ -27,6 +27,8 @@ import {
   ExitToApp,
   Notifications,
   LocationOn,
+  Storage,
+  CheckCircle,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -86,6 +88,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { text: 'Dashboard', icon: <Dashboard />, href: '/dashboard' },
     { text: 'Reports', icon: <Assessment />, href: '/dashboard/reports' },
     { text: 'Locations', icon: <LocationOn />, href: '/dashboard/locations' },
+    { text: 'Audit Sessions', icon: <Storage />, href: '/dashboard/sessions' },
+    { text: 'Approvals', icon: <CheckCircle />, href: '/dashboard/approvals' },
     { text: 'Users', icon: <People />, href: '/dashboard/users' },
     { text: 'Settings', icon: <Settings />, href: '/dashboard/settings' },
   ]

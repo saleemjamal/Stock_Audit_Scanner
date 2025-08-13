@@ -269,6 +269,9 @@ export const supabaseHelpers = {
 
   // Mark rack as ready for approval
   async markRackReady(rackId: string) {
+    console.log('✅ SupabaseHelper: markRackReady starting for:', rackId);
+    const start = Date.now();
+    
     const { data, error } = await supabase
       .from('racks')
       .update({
@@ -279,7 +282,25 @@ export const supabaseHelpers = {
       .select()
       .single();
     
-    if (error) throw error;
+    const elapsed = Date.now() - start;
+    
+    if (error) {
+      console.error(`❌ SupabaseHelper: markRackReady failed in ${elapsed}ms:`, {
+        error: error,
+        rackId: rackId,
+        code: error.code,
+        message: error.message,
+        details: error.details
+      });
+      throw error;
+    }
+    
+    console.log(`✅ SupabaseHelper: markRackReady successful in ${elapsed}ms:`, {
+      rackId: data?.id,
+      newStatus: data?.status,
+      readyForApproval: data?.ready_for_approval
+    });
+    
     return data;
   },
 
