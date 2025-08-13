@@ -5,6 +5,7 @@ import {
   ScrollView, 
   RefreshControl,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { 
   Text, 
@@ -45,8 +46,22 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
 
   useEffect(() => {
     // Load existing scans for this rack
+    console.log('🗑️ ReviewScreen: Loading scans for rack:', rack.id);
     dispatch(loadRackScans(rack.id));
   }, [dispatch, rack.id]);
+
+  useEffect(() => {
+    // Log scan data when it changes
+    console.log('🗑️ ReviewScreen: Current scans data:', {
+      count: currentRackScans.length,
+      scans: currentRackScans.map(scan => ({
+        id: scan.id,
+        barcode: scan.barcode,
+        scanner_id: scan.scanner_id,
+        created_at: scan.created_at
+      }))
+    });
+  }, [currentRackScans]);
 
   useEffect(() => {
     // Update navigation title with scan count
@@ -67,6 +82,8 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
   };
 
   const handleDeleteScan = (scanId: string, barcode: string) => {
+    console.log('🗑️ ReviewScreen: Delete requested for:', { scanId, barcode, type: typeof scanId });
+    
     Alert.alert(
       'Delete Scan',
       `Remove scan: ${barcode}?`,
@@ -82,6 +99,7 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
   };
 
   const confirmDeleteScan = async (scanId: string) => {
+    console.log('🗑️ ReviewScreen: Confirming delete for scanId:', scanId);
     setDeletingScans(prev => new Set(prev).add(scanId));
     
     try {
@@ -89,10 +107,13 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
       dispatch(removeScanFromState(scanId));
       
       // Delete from database
+      console.log('🗑️ ReviewScreen: Dispatching deleteScan action...');
       await dispatch(deleteScan(scanId)).unwrap();
       
+      console.log('🗑️ ReviewScreen: Delete successful!');
       dispatch(showSuccessMessage('Scan deleted'));
     } catch (error: any) {
+      console.error('🗑️ ReviewScreen: Delete failed:', error);
       // Restore scan to state on error
       dispatch(loadRackScans(rack.id));
       dispatch(showErrorMessage(`Failed to delete scan: ${error.message}`));
@@ -205,14 +226,16 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
                         <Text style={styles.scanTime}>{formatDateTime(scan.created_at)}</Text>
                       </View>
                     </View>
-                    <IconButton
-                      icon="delete"
-                      size={24}
-                      iconColor="#d32f2f"
+                    <TouchableOpacity
                       disabled={deletingScans.has(scan.id)}
                       onPress={() => handleDeleteScan(scan.id, scan.barcode)}
-                      style={styles.deleteButton}
-                    />
+                      style={[
+                        styles.deleteButton,
+                        deletingScans.has(scan.id) && styles.disabledDeleteButton
+                      ]}
+                    >
+                      <Text style={styles.deleteEmoji}>🗑️</Text>
+                    </TouchableOpacity>
                   </View>
                   {index < currentRackScans.length - 1 && <Divider />}
                 </View>
@@ -345,7 +368,23 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   deleteButton: {
-    margin: 0,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#ffebee',
+    borderWidth: 1,
+    borderColor: '#ffcdd2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 40,
+    minHeight: 40,
+  },
+  disabledDeleteButton: {
+    opacity: 0.5,
+    backgroundColor: '#f5f5f5',
+    borderColor: '#e0e0e0',
+  },
+  deleteEmoji: {
+    fontSize: 20,
   },
   actions: {
     flexDirection: 'row',

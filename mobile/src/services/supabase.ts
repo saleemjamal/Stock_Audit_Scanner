@@ -300,13 +300,47 @@ export const supabaseHelpers = {
     console.log('🗑️ SupabaseHelper: Deleting scan:', { scanId, userId });
     const start = Date.now();
     
+    // First, check if the scan exists and get its details
+    const { data: existingScans, error: checkError } = await supabase
+      .from('scans')
+      .select('*')
+      .eq('id', scanId);
+    
+    if (checkError) {
+      console.error('🗑️ SupabaseHelper: Scan lookup failed:', checkError);
+      throw new Error(`Scan lookup failed: ${checkError.message}`);
+    }
+    
+    if (!existingScans || existingScans.length === 0) {
+      console.error('🗑️ SupabaseHelper: Scan not found in database:', scanId);
+      throw new Error('Scan not found in database - it may not have been synced yet');
+    }
+    
+    if (existingScans.length > 1) {
+      console.warn('🗑️ SupabaseHelper: Multiple scans found with same ID:', scanId);
+    }
+    
+    const existingScan = existingScans[0];
+    
+    console.log('🗑️ SupabaseHelper: Found scan:', {
+      scanId: existingScan.id,
+      barcode: existingScan.barcode,
+      scannerInDb: existingScan.scanner_id,
+      currentUser: userId,
+      match: existingScan.scanner_id === userId
+    });
+    
+    // Check if user owns this scan
+    if (existingScan.scanner_id !== userId) {
+      throw new Error('Permission denied: You can only delete your own scans');
+    }
+    
+    // Delete the scan
     const { data, error } = await supabase
       .from('scans')
       .delete()
       .eq('id', scanId)
-      .eq('scanner_id', userId) // Security: users can only delete their own scans
-      .select()
-      .single();
+      .select();
     
     const elapsed = Date.now() - start;
     
