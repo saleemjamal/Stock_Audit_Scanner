@@ -119,7 +119,13 @@ export const ScanQueueProvider: React.FC<ScanQueueProviderProps> = ({ children }
       device_id: user.device_id || 'unknown'
     };
 
-    console.log('📝 ScanQueueProvider: Adding scan to queue:', scan.barcode);
+    console.log('📝 ScanQueueProvider: Adding scan to queue:', {
+      barcode: scan.barcode,
+      scanner_id: user.id,
+      user_email: user.email,
+      rack_id: scan.rack_id,
+      audit_session_id: scan.audit_session_id
+    });
     
     try {
       const scanId = await managerRef.current.addScan(scanWithUser);

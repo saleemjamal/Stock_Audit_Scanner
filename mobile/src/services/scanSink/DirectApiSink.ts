@@ -59,12 +59,63 @@ export class DirectApiSink implements ScanSink {
         // Note: removed created_at and updated_at - database handles these with DEFAULT NOW()
       }));
 
-      const { data, error } = await supabase
-        .from('scans')
-        .upsert(supabaseScans, { 
-          onConflict: 'client_scan_id',
-          ignoreDuplicates: true 
+      console.log('📤 DirectApiSink: Preparing to send to Supabase:', {
+        table: 'scans',
+        recordCount: supabaseScans.length,
+        firstRecord: JSON.stringify(supabaseScans[0], null, 2),
+        supabaseUrl: supabase.rest ? supabase.rest.url : 'URL not available'
+      });
+
+      // Check authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('🔐 DirectApiSink: Auth check:', {
+        hasSession: !!session,
+        hasToken: !!session?.access_token,
+        userId: session?.user?.id
+      });
+
+      const startTime = Date.now();
+      let data: any = null;
+      let error: any = null;
+      
+      try {
+        console.log('📤 DirectApiSink: Calling Supabase upsert...');
+        const result = await supabase
+          .from('scans')
+          .upsert(supabaseScans, { 
+            onConflict: 'client_scan_id',
+            ignoreDuplicates: true 
+          });
+        
+        data = result.data;
+        error = result.error;
+        
+        if (error) {
+          console.error('❌ DirectApiSink: Supabase returned error:', {
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+            fullError: JSON.stringify(error, null, 2)
+          });
+        }
+      } catch (catchError: any) {
+        console.error('💥 DirectApiSink: Exception during Supabase call:', {
+          name: catchError.name,
+          message: catchError.message,
+          stack: catchError.stack,
+          fullError: JSON.stringify(catchError, null, 2)
         });
+        error = catchError;
+      }
+
+      const elapsed = Date.now() - startTime;
+
+      console.log(`📤 DirectApiSink: Supabase call completed in ${elapsed}ms:`, {
+        hasData: !!data,
+        dataLength: data ? data.length : 0,
+        hasError: !!error
+      });
 
       // Handle rate limiting and server errors with retry
       if (error) {

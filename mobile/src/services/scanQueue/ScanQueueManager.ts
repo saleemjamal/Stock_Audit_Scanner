@@ -311,9 +311,13 @@ export class ScanQueueManager extends SimpleEventEmitter {
 
   private checkFlushTriggers(): void {
     // Don't trigger if already flushing
-    if (this.flushInProgress) return;
+    if (this.flushInProgress) {
+      console.log('⏸️ ScanQueueManager: Flush already in progress, skipping trigger');
+      return;
+    }
 
     const queueLength = this.memoryQueue.length;
+    console.log(`🔍 ScanQueueManager: Checking flush triggers - Queue: ${queueLength}, Online: ${this.isOnline}, Timer: ${!!this.flushTimer}`);
 
     // Size trigger - immediate flush if batch size reached
     if (queueLength >= config.BATCH_SIZE) {
@@ -328,10 +332,14 @@ export class ScanQueueManager extends SimpleEventEmitter {
       if (!this.flushTimer && queueLength > 0) {
         console.log(`⏰ ScanQueueManager: Time trigger - scheduling flush in ${config.FLUSH_INTERVAL_MS}ms`);
         this.flushTimer = setTimeout(() => {
-          console.log('⏰ ScanQueueManager: Time trigger fired');
+          console.log('⏰ ScanQueueManager: Time trigger fired - calling flush()');
           this.flush();
         }, config.FLUSH_INTERVAL_MS);
+      } else {
+        console.log('⏰ ScanQueueManager: Timer already scheduled, not creating new one');
       }
+    } else if (!this.isOnline) {
+      console.log('🔴 ScanQueueManager: Offline - not scheduling flush');
     }
 
     // Backpressure warning
