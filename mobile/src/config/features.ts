@@ -5,7 +5,7 @@ export const config = {
   
   // Queue configuration
   BATCH_SIZE: 50,               // Scans per batch
-  FLUSH_INTERVAL_MS: 2000,      // Max time before forcing flush (2s)
+  FLUSH_INTERVAL_MS: 15000,     // Max time before forcing flush (15s)
   QUEUE_MAX_SIZE: 2000,         // Max scans in memory queue
   QUEUE_WARNING_THRESHOLD: 0.8, // Warn when queue 80% full
   

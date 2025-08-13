@@ -32,7 +32,24 @@ export const loadRackScans = createAsyncThunk(
   }
 );
 
-// Removed deleteScan and syncPendingScans - these are handled by the queue system
+export const deleteScan = createAsyncThunk(
+  'scans/deleteScan',
+  async (scanId: string, { getState, rejectWithValue }) => {
+    try {
+      const state = getState() as any;
+      const userId = state.auth.user?.id;
+      
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+      
+      const deletedScan = await supabaseHelpers.deleteScan(scanId, userId);
+      return { scanId, deletedScan };
+    } catch (error: any) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
 
 const scanSlice = createSlice({
   name: 'scans',
@@ -53,6 +70,12 @@ const scanSlice = createSlice({
       state.currentRackScans.unshift(action.payload);
       state.scanCount = state.currentRackScans.length;
     },
+    // Remove scan from local state (optimistic UI for delete)
+    removeScanFromState: (state, action: PayloadAction<string>) => {
+      const scanId = action.payload;
+      state.currentRackScans = state.currentRackScans.filter(scan => scan.id !== scanId);
+      state.scanCount = state.currentRackScans.length;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -69,6 +92,18 @@ const scanSlice = createSlice({
       .addCase(loadRackScans.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
+      })
+      // Delete scan
+      .addCase(deleteScan.pending, (state) => {
+        state.error = null;
+      })
+      .addCase(deleteScan.fulfilled, (state, action) => {
+        // Scan already removed from state optimistically, nothing to do here
+        console.log('✅ Scan deleted successfully:', action.payload.scanId);
+      })
+      .addCase(deleteScan.rejected, (state, action) => {
+        state.error = action.payload as string;
+        // Note: In case of error, we should reload the scans to restore state
       });
   },
 });
@@ -78,6 +113,7 @@ export const {
   clearError,
   updateScanCount,
   addScanToState,
+  removeScanFromState,
 } = scanSlice.actions;
 
 export default scanSlice.reducer;

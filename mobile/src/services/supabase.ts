@@ -295,6 +295,30 @@ export const supabaseHelpers = {
     return data;
   },
 
+  // Delete a scan (with security check)
+  async deleteScan(scanId: string, userId: string) {
+    console.log('🗑️ SupabaseHelper: Deleting scan:', { scanId, userId });
+    const start = Date.now();
+    
+    const { data, error } = await supabase
+      .from('scans')
+      .delete()
+      .eq('id', scanId)
+      .eq('scanner_id', userId) // Security: users can only delete their own scans
+      .select()
+      .single();
+    
+    const elapsed = Date.now() - start;
+    
+    if (error) {
+      console.error(`🗑️ SupabaseHelper: deleteScan failed in ${elapsed}ms:`, error);
+      throw error;
+    }
+    
+    console.log(`🗑️ SupabaseHelper: deleteScan successful in ${elapsed}ms`);
+    return data;
+  },
+
   // Get notifications for user
   async getNotifications(userId: string) {
     const { data, error } = await supabase

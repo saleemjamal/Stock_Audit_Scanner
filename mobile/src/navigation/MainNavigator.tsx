@@ -5,6 +5,7 @@ import { useSelector } from 'react-redux';
 import { RootState } from '../store';
 import LocationSelectionScreen from '../screens/main/LocationSelectionScreen';
 import ScanningScreen from '../screens/main/ScanningScreen';
+import ReviewScansScreen from '../screens/main/ReviewScansScreen';
 import RackSelectionScreen from '../screens/main/RackSelectionScreen';
 import RackListScreen from '../screens/main/RackListScreen';
 import SettingsScreen from '../screens/main/SettingsScreen';
@@ -17,6 +18,10 @@ export type MainStackParamList = {
     location: Location;
   };
   Scanning: {
+    rack: Rack;
+    location: Location;
+  };
+  ReviewScans: {
     rack: Rack;
     location: Location;
   };
@@ -85,6 +90,15 @@ const MainNavigator: React.FC = () => {
         component={ScanningScreen}
         options={({ route }) => ({
           title: route.params?.rack?.rack_number ? `Scanning - ${route.params.rack.rack_number}` : 'Scanning',
+          headerBackTitleVisible: false,
+        })}
+      />
+      
+      <Stack.Screen 
+        name="ReviewScans" 
+        component={ReviewScansScreen}
+        options={({ route }) => ({
+          title: route.params?.rack?.rack_number ? `Review - ${route.params.rack.rack_number}` : 'Review Scans',
           headerBackTitleVisible: false,
         })}
       />

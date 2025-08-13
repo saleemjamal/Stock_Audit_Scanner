@@ -25,6 +25,7 @@ import { loadRackScans, clearCurrentRackScans } from '../../store/slices/scanSli
 import { markRackReady } from '../../store/slices/rackSlice';
 import { showSuccessMessage, showErrorMessage } from '../../store/slices/appSlice';
 import ScannerInput from '../../components/ScannerInput';
+import { useScanQueue } from '../../components/ScanQueueProvider';
 import { formatDateTime } from '../../../../shared/utils/helpers';
 
 type ScanningScreenRouteProp = RouteProp<MainStackParamList, 'Scanning'>;
@@ -42,6 +43,7 @@ const ScanningScreen: React.FC<ScanningScreenProps> = ({ route, navigation }) =>
   const { currentRackScans, scanCount, isLoading } = useSelector((state: RootState) => state.scans);
   const { isLoading: rackLoading } = useSelector((state: RootState) => state.racks);
   const { isOnline, pendingItems } = useSelector((state: RootState) => state.sync);
+  const { forceFlush } = useScanQueue();
   
   const [refreshing, setRefreshing] = useState(false);
 
@@ -78,40 +80,27 @@ const ScanningScreen: React.FC<ScanningScreenProps> = ({ route, navigation }) =>
     console.log('Scan added:', barcode);
   };
 
-  const handleMarkReady = () => {
+  const handleMarkReady = async () => {
     if (scanCount === 0) {
       Alert.alert(
         'No Scans',
-        'You need to scan at least one item before marking this rack as ready for approval.',
+        'You need to scan at least one item before reviewing this rack.',
         [{ text: 'OK' }]
       );
       return;
     }
 
-    Alert.alert(
-      'Mark Ready for Approval',
-      `Mark rack ${rack.rack_number} with ${scanCount} scans as ready for supervisor approval?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Mark Ready', 
-          style: 'default',
-          onPress: confirmMarkReady,
-        },
-      ]
-    );
-  };
-
-  const confirmMarkReady = async () => {
+    // Force flush queue to database before reviewing
     try {
-      await dispatch(markRackReady(rack.id)).unwrap();
-      dispatch(showSuccessMessage('Rack marked as ready for approval'));
-      
-      // Navigate back to rack selection
-      navigation.navigate('RackSelection', { location });
-    } catch (error: any) {
-      dispatch(showErrorMessage(`Failed to mark rack ready: ${error.message}`));
+      console.log('🔄 Flushing queue before review...');
+      await forceFlush();
+      console.log('✅ Queue flushed, navigating to review');
+    } catch (error) {
+      console.warn('⚠️ Queue flush failed, continuing to review anyway:', error);
     }
+
+    // Navigate to review screen
+    navigation.navigate('ReviewScans', { rack, location });
   };
 
   const goToRackList = () => {
@@ -241,7 +230,7 @@ const ScanningScreen: React.FC<ScanningScreenProps> = ({ route, navigation }) =>
             style={styles.readyButton}
             contentStyle={styles.buttonContent}
           >
-            Mark Ready for Approval
+            Review & Submit
           </Button>
         )}
       </View>
