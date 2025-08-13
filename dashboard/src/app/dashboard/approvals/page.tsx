@@ -17,10 +17,6 @@ import {
   Paper,
   Chip,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Alert,
   Snackbar,
   TextField,
@@ -37,6 +33,8 @@ import {
   Visibility,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
+import DashboardLayout from '@/components/DashboardLayout'
+import { useRouter } from 'next/navigation'
 
 interface PendingRack {
   id: string
@@ -48,19 +46,10 @@ interface PendingRack {
   status: string
 }
 
-interface ScanDetail {
-  id: string
-  barcode: string
-  created_at: string
-  manual_entry: boolean
-}
 
 export default function ApprovalsPage() {
   const [pendingRacks, setPendingRacks] = useState<PendingRack[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedRack, setSelectedRack] = useState<PendingRack | null>(null)
-  const [rackScans, setRackScans] = useState<ScanDetail[]>([])
-  const [dialogOpen, setDialogOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [processingAction, setProcessingAction] = useState<string | null>(null)
   const [snackbar, setSnackbar] = useState({ 
@@ -70,6 +59,7 @@ export default function ApprovalsPage() {
   })
   
   const supabase = createClient()
+  const router = useRouter()
 
   useEffect(() => {
     loadPendingApprovals()
@@ -91,6 +81,7 @@ export default function ApprovalsPage() {
   const loadPendingApprovals = async () => {
     try {
       setLoading(true)
+      console.log('Loading pending approvals...')
       
       // Get current user profile for location access control
       const { data: { user } } = await supabase.auth.getUser()
@@ -104,12 +95,22 @@ export default function ApprovalsPage() {
 
       console.log('User profile:', userProfile)
 
-      // Build base query
+      // First, let's check all racks to see their statuses
+      const { data: allRacks, error: testError } = await supabase
+        .from('racks')
+        .select('status')
+      
+      if (testError) {
+        console.error('Test query error:', testError)
+      } else {
+        console.log('All rack statuses:', [...new Set(allRacks?.map(r => r.status) || [])])
+      }
+
+      // Build base query - simplified to avoid field name issues
       let query = supabase
         .from('racks')
-        .select('id, rack_number, total_scans, completed_at, ready_at, status, location_id, scanner_id')
+        .select('*')
         .eq('status', 'ready_for_approval')
-        .order('ready_at', { ascending: true })
 
       // Apply location filtering for supervisors
       if (userProfile?.role === 'supervisor' && userProfile?.location_ids?.length > 0) {
@@ -119,8 +120,12 @@ export default function ApprovalsPage() {
 
       const { data: racks, error } = await query
 
-      if (error) throw error
+      if (error) {
+        console.error('Query error:', error)
+        throw error
+      }
       console.log('Racks found:', racks?.length || 0)
+      console.log('Raw racks data:', racks)
 
       if (!racks || racks.length === 0) {
         setPendingRacks([])
@@ -155,7 +160,7 @@ export default function ApprovalsPage() {
           location_name: location?.name || 'Unknown Location',
           scanner_username: scanner?.username || scanner?.email || 'Unknown Scanner',
           total_scans: rack.total_scans || 0,
-          completed_at: rack.ready_at || rack.completed_at,
+          completed_at: rack.completed_at || rack.created_at,
           status: rack.status,
         }
       })
@@ -174,30 +179,9 @@ export default function ApprovalsPage() {
     }
   }
 
-  const loadRackScans = async (rackId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('scans')
-        .select('id, barcode, created_at, manual_entry')
-        .eq('rack_id', rackId)
-        .order('created_at', { ascending: false })
 
-      if (error) throw error
-      setRackScans(data || [])
-    } catch (error) {
-      console.error('Error loading rack scans:', error)
-      setSnackbar({ 
-        open: true, 
-        message: 'Failed to load scan details', 
-        severity: 'error' 
-      })
-    }
-  }
-
-  const handleViewDetails = async (rack: PendingRack) => {
-    setSelectedRack(rack)
-    await loadRackScans(rack.id)
-    setDialogOpen(true)
+  const handleViewDetails = (rack: PendingRack) => {
+    router.push(`/dashboard/approvals/${rack.id}`)
   }
 
   const handleRackAction = async (rackId: string, action: 'approve' | 'reject') => {
@@ -258,10 +242,11 @@ export default function ApprovalsPage() {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Pending Approvals
-      </Typography>
+    <DashboardLayout>
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Pending Approvals
+        </Typography>
       
       <Typography variant="body1" color="text.secondary" paragraph>
         Review and approve rack scans submitted by scanners. Each rack must be individually reviewed.
@@ -392,86 +377,6 @@ export default function ApprovalsPage() {
         </CardContent>
       </Card>
 
-      {/* Scan Details Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          Scan Details - {selectedRack?.rack_number}
-        </DialogTitle>
-        <DialogContent>
-          {selectedRack && (
-            <Box mb={2}>
-              <Typography variant="body2" color="text.secondary">
-                Location: {selectedRack.location_name} | 
-                Scanner: {selectedRack.scanner_username} | 
-                Total Scans: {selectedRack.total_scans}
-              </Typography>
-            </Box>
-          )}
-          
-          <TableContainer component={Paper} elevation={0}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Barcode</TableCell>
-                  <TableCell>Scanned At</TableCell>
-                  <TableCell>Entry Type</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rackScans.map((scan) => (
-                  <TableRow key={scan.id}>
-                    <TableCell>
-                      <Typography variant="body2" fontFamily="monospace">
-                        {scan.barcode}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(scan.created_at).toLocaleString()}
-                    </TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={scan.manual_entry ? 'Manual' : 'Scanned'}
-                        size="small"
-                        color={scan.manual_entry ? 'warning' : 'default'}
-                        variant="outlined"
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Close</Button>
-          {selectedRack && (
-            <>
-              <Button
-                variant="outlined"
-                color="error"
-                onClick={() => {
-                  handleRackAction(selectedRack.id, 'reject')
-                  setDialogOpen(false)
-                }}
-                disabled={processingAction === selectedRack.id}
-              >
-                Reject
-              </Button>
-              <Button
-                variant="contained"
-                color="success"
-                onClick={() => {
-                  handleRackAction(selectedRack.id, 'approve')
-                  setDialogOpen(false)
-                }}
-                disabled={processingAction === selectedRack.id}
-              >
-                Approve
-              </Button>
-            </>
-          )}
-        </DialogActions>
-      </Dialog>
 
       {/* Snackbar */}
       <Snackbar
@@ -487,5 +392,6 @@ export default function ApprovalsPage() {
         </Alert>
       </Snackbar>
     </Container>
+    </DashboardLayout>
   )
 }

@@ -44,6 +44,7 @@ import {
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import DashboardLayout from '@/components/DashboardLayout'
 
 interface Location {
   id: number
@@ -171,20 +172,52 @@ export default function AuditSessionsPage() {
 
   const loadSessions = async () => {
     try {
+      console.log('Loading audit sessions...')
+      
+      // Simplified query - just get sessions first
       const { data: sessionsData, error } = await supabase
         .from('audit_sessions')
-        .select(`
-          *,
-          locations!inner(name),
-          users!audit_sessions_started_by_fkey(username, email)
-        `)
+        .select('*')
         .order('started_at', { ascending: false })
 
-      if (error) throw error
+      console.log('Sessions data:', sessionsData)
+      
+      if (error) {
+        console.error('Error loading sessions:', error)
+        throw error
+      }
+
+      if (!sessionsData || sessionsData.length === 0) {
+        console.log('No sessions found')
+        setSessions([])
+        return
+      }
+
+      // Get location names
+      const locationIds = [...new Set(sessionsData.map(s => s.location_id))]
+      const { data: locations } = await supabase
+        .from('locations')
+        .select('id, name')
+        .in('id', locationIds)
+      
+      console.log('Locations:', locations)
+
+      // Get user names
+      const userIds = [...new Set(sessionsData.map(s => s.started_by).filter(Boolean))]
+      let users: any[] = []
+      if (userIds.length > 0) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('id, username, email')
+          .in('id', userIds)
+        users = userData || []
+      }
+      
+      console.log('Users:', users)
 
       // Get rack counts for each session
       const sessionsWithCounts = await Promise.all(
-        (sessionsData || []).map(async (session) => {
+        sessionsData.map(async (session) => {
           const { data: rackData } = await supabase
             .from('racks')
             .select('status')
@@ -194,26 +227,34 @@ export default function AuditSessionsPage() {
             r.status === 'approved' || r.status === 'ready_for_approval'
           ).length || 0
 
+          const location = locations?.find(l => l.id === session.location_id)
+          const user = users?.find(u => u.id === session.started_by)
+
           return {
             ...session,
-            location_name: (session as any).locations?.name,
-            started_by_name: (session as any).users?.username || (session as any).users?.email,
+            location_name: location?.name || 'Unknown Location',
+            started_by_name: user?.username || user?.email || 'Unknown User',
             completed_rack_count: completedCount,
           }
         })
       )
 
+      console.log('Sessions with counts:', sessionsWithCounts)
+
       // Filter by user's locations if not superuser
       if (userProfile?.role !== 'superuser' && userProfile?.location_ids?.length) {
+        console.log('Filtering for user locations:', userProfile.location_ids)
         const filtered = sessionsWithCounts.filter(s => 
           userProfile.location_ids.includes(s.location_id)
         )
+        console.log('Filtered sessions:', filtered)
         setSessions(filtered)
       } else {
+        console.log('Setting all sessions (superuser or no location filter)')
         setSessions(sessionsWithCounts)
       }
     } catch (error) {
-      console.error('Error loading sessions:', error)
+      console.error('Error in loadSessions:', error)
     }
   }
 
@@ -419,11 +460,13 @@ export default function AuditSessionsPage() {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-        <Box display="flex" justifyContent="center" p={4}>
-          <CircularProgress />
-        </Box>
-      </Container>
+      <DashboardLayout>
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        </Container>
+      </DashboardLayout>
     )
   }
 
@@ -431,11 +474,12 @@ export default function AuditSessionsPage() {
   const completedSessions = sessions.filter(s => s.status !== 'active')
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1">
-          Audit Sessions
-        </Typography>
+    <DashboardLayout>
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Typography variant="h4" component="h1">
+            Audit Sessions
+          </Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
@@ -707,5 +751,6 @@ export default function AuditSessionsPage() {
         </Alert>
       </Snackbar>
     </Container>
+    </DashboardLayout>
   )
 }
