@@ -8,6 +8,7 @@ import DashboardLayout from '@/components/DashboardLayout'
 import AuditOverview from '@/components/AuditOverview'
 import KPIOverview from '@/components/KPIOverview'
 import RackMap from '@/components/RackMap'
+import StatusViews from '@/components/StatusViews'
 import RecentActivity from '@/components/RecentActivity'
 import PendingApprovals from '@/components/PendingApprovals'
 import LocationStats from '@/components/LocationStats'
@@ -112,6 +113,13 @@ export default function DashboardPage() {
           <Grid item xs={12} md={4}>
             <Suspense fallback={<CircularProgress />}>
               <PendingApprovals />
+            </Suspense>
+          </Grid>
+
+          {/* Status Views */}
+          <Grid item xs={12}>
+            <Suspense fallback={<CircularProgress />}>
+              <StatusViews />
             </Suspense>
           </Grid>
 
