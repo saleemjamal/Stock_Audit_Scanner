@@ -80,10 +80,14 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
       clearTimeout(scanTimeoutRef.current);
     }
     
-    // Set timeout to process scan after brief pause
-    scanTimeoutRef.current = setTimeout(() => {
-      processPotentialScan(text);
-    }, 50);
+    // Only auto-process in auto mode (USB scanner)
+    // In manual mode, wait for explicit submission
+    if (!manualMode) {
+      // Set timeout to process scan after brief pause
+      scanTimeoutRef.current = setTimeout(() => {
+        processPotentialScan(text);
+      }, 50);
+    }
   };
 
   const handleSubmitEditing = () => {

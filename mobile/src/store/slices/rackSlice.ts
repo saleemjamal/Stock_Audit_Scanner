@@ -262,9 +262,10 @@ const rackSlice = createSlice({
             state.userRacks[index] = action.payload;
           }
           
-          // Update current rack if it matches
+          // Clear current rack since it's now ready for approval
+          // This ensures user can't continue scanning after submitting
           if (state.currentRack?.id === action.payload.id) {
-            state.currentRack = action.payload;
+            state.currentRack = null;
           }
         }
       })

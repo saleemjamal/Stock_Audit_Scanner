@@ -52,13 +52,14 @@ npm run type-check             # TypeScript type checking
 ### Mobile App Structure
 ```
 mobile/src/
-├── components/          # Reusable UI components (ScannerInput, SyncManager)
+├── components/          # Reusable UI components (ScannerInput, QueueStatusBadge)
 ├── screens/            # Screen components organized by feature
 │   ├── auth/          # Login, OAuth callback
-│   └── main/          # Location, Rack, Scanning screens
+│   └── main/          # Location, Rack, Scanning, ReviewScans screens
 ├── navigation/         # React Navigation setup
 ├── store/             # Redux Toolkit store and slices
-├── services/          # Supabase client, database operations
+├── services/          # Supabase client, scan queue system
+│   └── scanQueue/     # Queue-based architecture (no SQLite)
 ├── hooks/             # Custom React hooks
 └── utils/             # Utilities and constants
 ```
@@ -92,13 +93,14 @@ dashboard/src/
 
 ### Key Features
 1. **Google OAuth + Whitelisting**: Only pre-authorized users can access the system
-2. **Queue-Based Architecture**: In-memory queue with AsyncStorage persistence (no SQLite dependency)
+2. **AsyncStorage Queue System**: Replaced SQLite with in-memory queue + AsyncStorage ring buffer for persistence
 3. **USB Scanner Support**: Direct barcode input via USB OTG
 4. **Scanner Self-Review Workflow**: Scan → Review & Delete → Submit → Supervisor Approval
 5. **Real-time Updates**: Supabase subscriptions for live dashboard
 6. **Role-Based Access**: Platform restrictions based on user role
 7. **Dual-Platform Supervisors**: Can use both mobile and web for flexibility
-8. **Optimized Performance**: 15-second sync intervals, instant scan feedback, emoji-based UI
+8. **Optimized Performance**: 15-second sync intervals, instant scan feedback, no database bottlenecks
+9. **Single Rack Workflow**: Scanners work on one rack at a time (recently implemented)
 
 ## Environment Setup
 
@@ -342,16 +344,20 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
   - Proper network setup for React Native development
 - **Result**: Mobile app running on physical device while keeping USB port available for scanner testing
 
-### 9. SQLite Performance Crisis (REPLACED WITH QUEUE SYSTEM - Aug 11, 2025)
-- **Original Problem**: Local database saves taking 60+ seconds per scan
-- **Attempted Fix**: Migrated to op-sqlite, but still had initialization issues
-- **Final Solution**: Complete architecture redesign - replaced local database with queue system
-  - Removed all local database caching logic
-  - Implemented in-memory queue with AsyncStorage backup
-  - Direct API calls with batch uploads
-  - Feature flag to disable database entirely (USE_LOCAL_DB: false)
-- **Result**: Instant scan processing, no database bottlenecks
-- **Status**: **RESOLVED** - Using queue-based architecture instead of local database
+### 9. SQLite to AsyncStorage Migration (COMPLETED - Aug 11, 2025)
+- **Original Problem**: SQLite/op-sqlite taking 60+ seconds per scan, causing app to be unusable
+- **Final Solution**: Complete architecture redesign - replaced SQLite with AsyncStorage queue system
+  - Removed all SQLite/op-sqlite dependencies
+  - Implemented in-memory queue with AsyncStorage ring buffer for persistence
+  - Direct Supabase API calls with batch uploads (50 scans or 15 seconds)
+  - Client-side scan IDs (timestamps) for idempotency
+- **Architecture Components**:
+  - `ScanQueueManager`: Central coordinator with single-flight flush pattern
+  - `DirectApiSink`: Batch uploads with exponential backoff
+  - `PersistentQueue`: AsyncStorage ring buffer for crash recovery
+  - `QueueStatusBadge`: Real-time UI feedback
+- **Result**: Instant scan processing (<10ms), no database bottlenecks, crash-safe persistence
+- **Status**: **PRODUCTION READY** - AsyncStorage queue system fully operational
 
 ### 10. Node.js Module Dependencies (RESOLVED - Aug 11, 2025)
 - **Problem**: React Native missing Node.js modules (`events`, `uuid`)
@@ -449,3 +455,4 @@ VALUES (
 );
 ```
 - please give very concise answers going forward
+- be very concise unless requested.

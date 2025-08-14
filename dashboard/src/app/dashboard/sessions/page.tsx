@@ -288,12 +288,19 @@ export default function AuditSessionsPage() {
         return
       }
 
-      // Create new session (notes field is optional - may not exist in older schemas)
+      // Generate shortname for session
+      const location = locations.find(l => l.id === selectedLocation)
+      const locationCode = location?.name.replace(/[^A-Za-z0-9]/g, '').substring(0, 2).toUpperCase() || 'AU'
+      const dateSuffix = new Date().toISOString().slice(2, 10).replace(/-/g, '') // YYMMDD
+      const shortname = `${locationCode}${dateSuffix}`
+
+      // Create new session
       const sessionData: any = {
         location_id: selectedLocation,
         total_rack_count: rackCount,
         status: 'active',
         started_by: userProfile?.id,
+        shortname: shortname,
       }
       
       // Only add notes if field is provided (to handle schemas without notes column)

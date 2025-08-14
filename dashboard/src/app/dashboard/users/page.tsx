@@ -36,8 +36,6 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Person,
-  Visibility,
-  VisibilityOff,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -63,7 +61,6 @@ interface Location {
 interface UserFormData {
   username: string
   email: string
-  password: string
   role: 'scanner' | 'supervisor' | 'superuser'
   location_ids: string[]
   active: boolean
@@ -72,7 +69,6 @@ interface UserFormData {
 const initialFormData: UserFormData = {
   username: '',
   email: '',
-  password: '',
   role: 'scanner',
   location_ids: [],
   active: true,
@@ -87,7 +83,6 @@ export default function UsersPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [formData, setFormData] = useState<UserFormData>(initialFormData)
-  const [showPassword, setShowPassword] = useState(false)
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' })
   const supabase = createClient()
 
@@ -134,12 +129,20 @@ export default function UsersPage() {
 
   const loadUsers = async () => {
     try {
+      console.log('Loading users...')
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .order('username')
 
-      if (error) throw error
+      console.log('Users query result:', { data, error })
+      
+      if (error) {
+        console.error('Supabase error:', error)
+        throw error
+      }
+      
+      console.log(`Loaded ${data?.length || 0} users`)
       setUsers(data || [])
     } catch (error) {
       console.error('Error loading users:', error)
@@ -192,7 +195,6 @@ export default function UsersPage() {
     setDialogOpen(false)
     setEditingUser(null)
     setFormData(initialFormData)
-    setShowPassword(false)
   }
 
   const handleFormChange = (field: keyof UserFormData) => (
@@ -230,11 +232,6 @@ export default function UsersPage() {
         return
       }
 
-      if (!editingUser && !formData.password.trim()) {
-        setSnackbar({ open: true, message: 'Password is required for new users', severity: 'error' })
-        return
-      }
-
       if (editingUser) {
         // Update existing user
         const updateData: any = {
@@ -243,11 +240,6 @@ export default function UsersPage() {
           role: formData.role,
           location_ids: formData.location_ids,
           active: formData.active,
-        }
-
-        // Only include password if provided
-        if (formData.password.trim()) {
-          updateData.password_hash = formData.password // Will be hashed by trigger
         }
 
         const { error } = await supabase
@@ -264,7 +256,7 @@ export default function UsersPage() {
           .insert([{
             username: formData.username,
             email: formData.email.trim(),
-            password_hash: formData.password, // Will be hashed by trigger
+            full_name: formData.username, // Use username as full_name for now
             role: formData.role,
             location_ids: formData.location_ids,
             active: formData.active,
@@ -446,23 +438,6 @@ export default function UsersPage() {
               required
               sx={{ mb: 2 }}
               helperText="Required for Google Sign-in authentication"
-            />
-            <TextField
-              margin="dense"
-              label={editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
-              fullWidth
-              variant="outlined"
-              type={showPassword ? 'text' : 'password'}
-              value={formData.password}
-              onChange={handleFormChange('password')}
-              sx={{ mb: 2 }}
-              InputProps={{
-                endAdornment: (
-                  <IconButton onClick={() => setShowPassword(!showPassword)}>
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
-                )
-              }}
             />
             <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
               <InputLabel>Role</InputLabel>

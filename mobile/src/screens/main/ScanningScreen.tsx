@@ -111,6 +111,7 @@ const ScanningScreen: React.FC<ScanningScreenProps> = ({ route, navigation }) =>
     navigation.navigate('SyncStatus');
   };
 
+
   const isRackReadyForApproval = rack.status === 'ready_for_approval';
   const canMarkReady = rack.status === 'assigned' && scanCount > 0;
 

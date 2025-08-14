@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
 import AuditOverview from '@/components/AuditOverview'
+import KPIOverview from '@/components/KPIOverview'
+import RackMap from '@/components/RackMap'
 import RecentActivity from '@/components/RecentActivity'
 import PendingApprovals from '@/components/PendingApprovals'
 import LocationStats from '@/components/LocationStats'
@@ -85,17 +87,24 @@ export default function DashboardPage() {
         </Typography>
         
         <Grid container spacing={3}>
-          {/* Main Stats */}
+          {/* KPI Overview */}
+          <Grid item xs={12}>
+            <Suspense fallback={<CircularProgress />}>
+              <KPIOverview />
+            </Suspense>
+          </Grid>
+
+          {/* Basic Stats */}
           <Grid item xs={12}>
             <Suspense fallback={<CircularProgress />}>
               <AuditOverview />
             </Suspense>
           </Grid>
 
-          {/* Location Stats */}
+          {/* Rack Map */}
           <Grid item xs={12} md={8}>
             <Suspense fallback={<CircularProgress />}>
-              <LocationStats />
+              <RackMap />
             </Suspense>
           </Grid>
 
@@ -103,6 +112,13 @@ export default function DashboardPage() {
           <Grid item xs={12} md={4}>
             <Suspense fallback={<CircularProgress />}>
               <PendingApprovals />
+            </Suspense>
+          </Grid>
+
+          {/* Location Stats */}
+          <Grid item xs={12}>
+            <Suspense fallback={<CircularProgress />}>
+              <LocationStats />
             </Suspense>
           </Grid>
 

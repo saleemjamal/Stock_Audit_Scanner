@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Alert } from 'react-native';
 import { Text, Card, List, Button, ActivityIndicator, FAB } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -35,7 +35,11 @@ const RackSelectionScreen: React.FC<RackSelectionScreenProps> = ({ route, naviga
     isLoading 
   } = useSelector((state: RootState) => state.racks);
   
-  const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Check if user has an active rack (assigned but not ready for approval)
+  const activeRack = userRacks.find(rack => rack.status === 'assigned');
+  const hasActiveRack = !!activeRack;
 
   useEffect(() => {
     loadInitialData();
@@ -73,6 +77,22 @@ const RackSelectionScreen: React.FC<RackSelectionScreenProps> = ({ route, naviga
   };
 
   const handleAssignRack = async (rackId: string) => {
+    // Check if user already has an active rack
+    if (hasActiveRack) {
+      Alert.alert(
+        'Active Rack',
+        `You already have an active rack (Rack ${activeRack.rack_number}). Please complete it before starting a new one.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Go to Active Rack', 
+            onPress: () => resumeRack(activeRack) 
+          }
+        ]
+      );
+      return;
+    }
+    
     try {
       const assignedRack = await dispatch(assignRack(rackId)).unwrap();
       if (assignedRack) {
@@ -92,6 +112,7 @@ const RackSelectionScreen: React.FC<RackSelectionScreenProps> = ({ route, naviga
   const goToRackList = () => {
     navigation.navigate('RackList', { location });
   };
+
 
   if (isLoading && !currentAuditSession) {
     return (
@@ -142,64 +163,111 @@ const RackSelectionScreen: React.FC<RackSelectionScreenProps> = ({ route, naviga
           </Card.Content>
         </Card>
 
-        {/* Continue Previous Racks */}
-        {userRacks.length > 0 && (
-          <Card style={styles.sectionCard}>
+
+        {/* Active Rack - Show prominently if user has one */}
+        {hasActiveRack && (
+          <Card style={[styles.sectionCard, styles.activeRackCard]}>
             <Card.Content>
-              <Text style={styles.sectionTitle}>Continue Your Racks</Text>
-              {userRacks.map((rack) => (
-                <List.Item
-                  key={rack.id}
-                  title={`Rack ${rack.rack_number}`}
-                  description={getRackStatusDescription(rack)}
-                  onPress={() => resumeRack(rack)}
-                  style={styles.rackItem}
-                  left={(props) => (
-                    <List.Icon 
-                      {...props} 
-                      icon={getRackStatusIcon(rack.status)} 
-                      color={getRackStatusColor(rack.status)}
-                    />
-                  )}
-                  right={(props) => (
-                    <List.Icon {...props} icon="chevron-right" />
-                  )}
-                />
-              ))}
+              <Text style={styles.activeRackTitle}>📦 Current Active Rack</Text>
+              <List.Item
+                title={`Rack ${activeRack.rack_number}`}
+                description={`${activeRack.total_scans || 0} scans - Continue scanning`}
+                onPress={() => resumeRack(activeRack)}
+                style={styles.rackItem}
+                left={(props) => (
+                  <List.Icon 
+                    {...props} 
+                    icon="barcode-scan" 
+                    color="#1976d2"
+                  />
+                )}
+                right={(props) => (
+                  <Button mode="contained" compact>
+                    Continue
+                  </Button>
+                )}
+              />
+              <Text style={styles.activeRackNote}>
+                Complete this rack before starting a new one
+              </Text>
             </Card.Content>
           </Card>
         )}
 
-        {/* Available Racks */}
-        <Card style={styles.sectionCard}>
-          <Card.Content>
-            <Text style={styles.sectionTitle}>
-              Available Racks ({availableRacks.length})
-            </Text>
-            
-            {availableRacks.length === 0 ? (
-              <Text style={styles.emptyText}>
-                No racks available. All racks may be assigned or completed.
+        {/* Completed/Pending Racks */}
+        {userRacks.filter(rack => rack.status !== 'assigned').length > 0 && (
+          <Card style={styles.sectionCard}>
+            <Card.Content>
+              <Text style={styles.sectionTitle}>Your Other Racks</Text>
+              {userRacks
+                .filter(rack => rack.status !== 'assigned')
+                .map((rack) => (
+                  <List.Item
+                    key={rack.id}
+                    title={`Rack ${rack.rack_number}`}
+                    description={getRackStatusDescription(rack)}
+                    onPress={() => rack.status === 'rejected' ? resumeRack(rack) : null}
+                    disabled={rack.status !== 'rejected'}
+                    style={styles.rackItem}
+                    left={(props) => (
+                      <List.Icon 
+                        {...props} 
+                        icon={getRackStatusIcon(rack.status)} 
+                        color={getRackStatusColor(rack.status)}
+                      />
+                    )}
+                    right={(props) => rack.status === 'rejected' && (
+                      <List.Icon {...props} icon="chevron-right" />
+                    )}
+                  />
+                ))}
+            </Card.Content>
+          </Card>
+        )}
+
+        {/* Available Racks - Hide or show disabled state when user has active rack */}
+        {!hasActiveRack && (
+          <Card style={styles.sectionCard}>
+            <Card.Content>
+              <Text style={styles.sectionTitle}>
+                Available Racks ({availableRacks.length})
               </Text>
-            ) : (
-              availableRacks.slice(0, 20).map((rack) => (
-                <List.Item
-                  key={rack.id}
-                  title={`Rack ${rack.rack_number}`}
-                  description="Available for assignment"
-                  onPress={() => handleAssignRack(rack.id)}
-                  style={styles.rackItem}
-                  left={(props) => (
-                    <List.Icon {...props} icon="package-variant" color="#4caf50" />
-                  )}
-                  right={(props) => (
-                    <List.Icon {...props} icon="plus" />
-                  )}
-                />
-              ))
-            )}
-          </Card.Content>
-        </Card>
+              
+              {availableRacks.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  No racks available. All racks may be assigned or completed.
+                </Text>
+              ) : (
+                availableRacks.slice(0, 20).map((rack) => (
+                  <List.Item
+                    key={rack.id}
+                    title={`Rack ${rack.rack_number}`}
+                    description="Available for assignment"
+                    onPress={() => handleAssignRack(rack.id)}
+                    style={styles.rackItem}
+                    left={(props) => (
+                      <List.Icon {...props} icon="package-variant" color="#4caf50" />
+                    )}
+                    right={(props) => (
+                      <List.Icon {...props} icon="plus" />
+                    )}
+                  />
+                ))
+              )}
+            </Card.Content>
+          </Card>
+        )}
+        
+        {/* Show info when available racks are hidden */}
+        {hasActiveRack && availableRacks.length > 0 && (
+          <Card style={styles.infoCard}>
+            <Card.Content>
+              <Text style={styles.infoText}>
+                ℹ️ {availableRacks.length} racks are available. Complete your current rack to select a new one.
+              </Text>
+            </Card.Content>
+          </Card>
+        )}
       </ScrollView>
 
       {/* FAB for Rack List */}
@@ -209,6 +277,7 @@ const RackSelectionScreen: React.FC<RackSelectionScreenProps> = ({ route, naviga
         onPress={goToRackList}
         label="My Racks"
       />
+
     </View>
   );
 };
@@ -286,6 +355,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 12,
   },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#666666',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
   rackItem: {
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
@@ -318,6 +393,28 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 16,
     right: 16,
+  },
+  activeRackCard: {
+    borderWidth: 2,
+    borderColor: '#1976d2',
+  },
+  activeRackTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1976d2',
+    marginBottom: 12,
+  },
+  activeRackNote: {
+    fontSize: 14,
+    color: '#666666',
+    fontStyle: 'italic',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#666666',
+    textAlign: 'center',
   },
 });
 

@@ -44,17 +44,17 @@ export default function AuditOverview() {
     try {
       const supabase = createClient()
       
-      // This is a simplified version - in reality you'd query across all active audits
-      // and filter by user's accessible locations
+      // Get racks from active audit sessions only
       const { data: racks } = await supabase
         .from('racks')
-        .select('status, total_scans')
+        .select('status, audit_sessions!inner(status)')
+        .eq('audit_sessions.status', 'active')
       
       if (racks) {
         const totalRacks = racks.length
         const completedRacks = racks.filter(r => r.status === 'approved').length
         const pendingRacks = racks.filter(r => r.status === 'ready_for_approval').length
-        const totalScans = racks.reduce((sum, rack) => sum + (rack.total_scans || 0), 0)
+        const totalScans = 0 // Will need separate query for scan counts
         
         setStats({
           totalRacks,
