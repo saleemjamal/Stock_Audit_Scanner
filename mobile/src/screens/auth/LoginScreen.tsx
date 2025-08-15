@@ -1,19 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { 
-  Button, 
   Card, 
   Title, 
   Paragraph,
-  Divider,
   HelperText,
   ActivityIndicator,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { signInWithGoogle, signInWithSupabaseOAuth, clearError, initializeAuth } from '../../store/slices/authSlice';
+import { signInWithGoogle, clearError } from '../../store/slices/authSlice';
 import { RootState, AppDispatch } from '../../store';
-import { supabase } from '../../services/supabase';
 import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
 
 const LoginScreen: React.FC = () => {
@@ -26,16 +23,12 @@ const LoginScreen: React.FC = () => {
     try {
       setIsGoogleLoading(true);
       dispatch(clearError());
-
-      console.log('🔐 NATIVE_GOOGLE: Starting native Google Sign-In');
       
       // Use native Google Sign-In
       await dispatch(signInWithGoogle()).unwrap();
       
-      console.log('🔐 NATIVE_GOOGLE: Sign-in successful');
       // Navigation will happen automatically when auth state changes
     } catch (error: any) {
-      console.error('🔐 NATIVE_GOOGLE: Sign-in Error:', error);
       Alert.alert(
         'Sign-in Error',
         error.message || 'Failed to sign in with Google',
@@ -46,44 +39,6 @@ const LoginScreen: React.FC = () => {
     }
   };
 
-  // Removed old WebView OAuth handlers - using native Google Sign-In now
-
-  const handleTestSignIn = (email: string) => {
-    Alert.alert(
-      'Development Testing',
-      `This would test user lookup for: ${email}\n\nIn production, users would sign in with their actual Google accounts.`,
-      [{ text: 'OK' }]
-    );
-  };
-
-  const handleCheckSession = async () => {
-    console.log('🔐 BUTTON: Check Session button pressed');
-    try {
-      // Direct Supabase check first
-      console.log('🔐 BUTTON: Checking Supabase session directly...');
-      const { data: { session }, error } = await supabase.auth.getSession();
-      console.log('🔐 BUTTON: Direct Supabase session:', { 
-        hasSession: !!session, 
-        email: session?.user?.email,
-        error: error?.message 
-      });
-
-      // Then try Redux
-      console.log('🔐 BUTTON: About to dispatch initializeAuth...');
-      const result = await dispatch(initializeAuth()).unwrap();
-      console.log('🔐 BUTTON: Redux result:', result);
-      
-      Alert.alert('Session Check', 
-        `Direct Supabase: ${!!session}\n` +
-        `Session Email: ${session?.user?.email || 'None'}\n` +
-        `Redux Result: ${!!result.session}\n` +
-        `User: ${result.user?.email || 'None'}`
-      );
-    } catch (error: any) {
-      console.log('🔐 BUTTON: Got error:', error);
-      Alert.alert('Session Check', `Error: ${error.message}`);
-    }
-  };
 
   return (
     <KeyboardAvoidingView 
@@ -121,50 +76,6 @@ const LoginScreen: React.FC = () => {
                   {error}
                 </HelperText>
               )}
-
-              <Divider style={styles.divider} />
-
-              {/* Development Test Buttons */}
-              <View style={styles.testSection}>
-                <Paragraph style={styles.testHeader}>Development Testing</Paragraph>
-                
-                <Button
-                  mode="outlined"
-                  onPress={handleCheckSession}
-                  style={styles.testButton}
-                  compact
-                  buttonColor="#ff9800"
-                >
-                  Check Session Status
-                </Button>
-                
-                <Button
-                  mode="outlined"
-                  onPress={() => handleTestSignIn('saleem@poppatjamals.com')}
-                  style={styles.testButton}
-                  compact
-                >
-                  Test: Saleem (Superuser)
-                </Button>
-                
-                <Button
-                  mode="outlined"
-                  onPress={() => handleTestSignIn('supervisor1@poppatjamals.com')}
-                  style={styles.testButton}
-                  compact
-                >
-                  Test: Supervisor 1
-                </Button>
-                
-                <Button
-                  mode="outlined"
-                  onPress={() => handleTestSignIn('scanner1@poppatjamals.com')}
-                  style={styles.testButton}
-                  compact
-                >
-                  Test: Scanner 1
-                </Button>
-              </View>
             </View>
           </Card.Content>
         </Card>
@@ -240,24 +151,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-  },
-  divider: {
-    marginVertical: 16,
-  },
-  testSection: {
-    marginTop: 8,
-    alignItems: 'center',
-  },
-  testHeader: {
-    fontSize: 14,
-    color: '#666666',
-    textAlign: 'center',
-    marginBottom: 12,
-    fontWeight: '600',
-  },
-  testButton: {
-    marginVertical: 4,
-    width: '100%',
   },
   errorText: {
     marginTop: 16,

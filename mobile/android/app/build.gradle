@@ -3,6 +3,7 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 apply plugin: 'com.google.gms.google-services'
 apply plugin: 'com.google.firebase.crashlytics'
+apply plugin: 'com.google.firebase.appdistribution'
 
 /**
  * Set this to true to create four separate APKs instead of one,
@@ -132,6 +133,12 @@ android {
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            
+            // Firebase App Distribution configuration
+            firebaseAppDistribution {
+                releaseNotes = "Stock Audit Scanner - Release Build"
+                groups = "internal-testers"
+            }
         }
     }
     

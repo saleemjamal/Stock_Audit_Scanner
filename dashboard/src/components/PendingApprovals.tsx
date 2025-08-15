@@ -43,6 +43,7 @@ interface PendingRack {
 export default function PendingApprovals() {
   const [pendingRacks, setPendingRacks] = useState<PendingRack[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [selectedRack, setSelectedRack] = useState<PendingRack | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' })
@@ -50,83 +51,122 @@ export default function PendingApprovals() {
 
   useEffect(() => {
     loadPendingApprovals()
-    
-    // Set up real-time subscription for rack status changes
+  }, [])
+
+  useEffect(() => {
+    if (!activeSessionId) return
+
+    // Set up real-time subscription for rack status changes - filtered by active session
     const subscription = supabase
       .channel('pending_approvals')
       .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'racks', filter: 'status=eq.ready_for_approval' },
-        () => loadPendingApprovals()
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'racks', 
+          filter: `audit_session_id=eq.${activeSessionId}` 
+        },
+        (payload) => {
+          console.log('Rack change detected for active session:', payload)
+          loadPendingApprovals()
+        }
       )
       .subscribe()
 
     return () => {
       subscription.unsubscribe()
     }
-  }, [])
+  }, [activeSessionId])
 
   const loadPendingApprovals = async () => {
     try {
-      const { data, error } = await supabase
+      setLoading(true)
+      
+      // First get the active audit session
+      const { data: activeSession, error: sessionError } = await supabase
+        .from('audit_sessions')
+        .select('id')
+        .eq('status', 'active')
+        .single()
+
+      if (sessionError) {
+        console.error('Error fetching active session:', sessionError)
+        setPendingRacks([])
+        setActiveSessionId(null)
+        return
+      }
+
+      if (!activeSession) {
+        console.log('No active audit session found')
+        setPendingRacks([])
+        setActiveSessionId(null)
+        return
+      }
+
+      console.log('Active session ID:', activeSession.id)
+      setActiveSessionId(activeSession.id)
+
+      // Use simpler query approach like the Approvals page
+      const { data: racks, error } = await supabase
         .from('racks')
-        .select(`
-          id,
-          rack_number,
-          total_scans,
-          completed_at,
-          status,
-          locations!inner(name),
-          users!racks_assigned_to_fkey(username)
-        `)
+        .select('*')
         .eq('status', 'ready_for_approval')
+        .eq('audit_session_id', activeSession.id)
         .order('completed_at', { ascending: true })
         .limit(10)
 
-      if (error) throw error
+      if (error) {
+        console.error('Error loading pending racks:', error)
+        setPendingRacks([])
+        return
+      }
 
-      const transformedRacks = data?.map(rack => ({
+      console.log('Raw pending racks data:', racks)
+
+      if (!racks || racks.length === 0) {
+        setPendingRacks([])
+        return
+      }
+
+      // Get location names
+      const locationIds = Array.from(new Set(racks.map(r => r.location_id)))
+      const { data: locations } = await supabase
+        .from('locations')
+        .select('id, name')
+        .in('id', locationIds)
+
+      // Get scanner usernames
+      const scannerIds = Array.from(new Set(racks.map(r => r.scanner_id).filter(Boolean)))
+      let scanners: any[] = []
+      if (scannerIds.length > 0) {
+        const { data } = await supabase
+          .from('users')
+          .select('id, username')
+          .in('id', scannerIds)
+        scanners = data || []
+      }
+
+      // Create lookup maps
+      const locationMap = new Map(locations?.map(l => [l.id, l.name]) || [])
+      const scannerMap = new Map(scanners?.map(s => [s.id, s.username]) || [])
+
+      // Transform racks with the location and scanner data
+      const transformedRacks = racks.map(rack => ({
         id: rack.id,
         rack_number: rack.rack_number,
-        location_name: (rack as any).locations.name,
-        scanner_username: (rack as any).users.username,
+        location_name: locationMap.get(rack.location_id) || 'Unknown Location',
+        scanner_username: scannerMap.get(rack.scanner_id) || 'Unknown Scanner',
         total_scans: rack.total_scans || 0,
         completed_at: rack.completed_at,
         status: rack.status,
-      })) || []
+      }))
 
+      console.log('Transformed pending racks:', transformedRacks)
       setPendingRacks(transformedRacks)
     } catch (error) {
-      console.error('Error loading pending approvals:', error)
-      // Use mock data if database query fails
-      setPendingRacks([
-        {
-          id: '1',
-          rack_number: 'A-101',
-          location_name: 'Downtown Store',
-          scanner_username: 'scanner1',
-          total_scans: 45,
-          completed_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 minutes ago
-          status: 'ready_for_approval'
-        },
-        {
-          id: '2',
-          rack_number: 'B-205',
-          location_name: 'Warehouse A',
-          scanner_username: 'scanner2',
-          total_scans: 67,
-          completed_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(), // 45 minutes ago
-          status: 'ready_for_approval'
-        },
-        {
-          id: '3',
-          rack_number: 'C-340',
-          location_name: 'Downtown Store',
-          scanner_username: 'supervisor1',
-          total_scans: 23,
-          completed_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(), // 1 hour ago
-          status: 'ready_for_approval'
-        }
-      ])
+      console.error('Error in loadPendingApprovals:', error)
+      setPendingRacks([])
+      setActiveSessionId(null)
     } finally {
       setLoading(false)
     }

@@ -37,7 +37,7 @@ export default function LoginPage() {
     if (errorParam === 'user_not_in_system') {
       setError('Your Google account is not authorized for this system. Only pre-approved users can access the dashboard. Please contact a system administrator (saleem@poppatjamals.com) to be added to the authorized user list.')
     } else if (errorParam === 'insufficient_permissions') {
-      setError('Access denied. Scanners should use the mobile app only. Supervisors and superusers can access the dashboard.')
+      setError('Access denied. You do not have permission to access this page.')
     }
     
     checkAuth()
@@ -86,10 +86,8 @@ export default function LoginPage() {
         throw new Error(`User ${email} not found in system. This email would be denied access - only pre-authorized users can sign in.`)
       }
 
-      // Check role access
-      if (userProfile.role === 'scanner') {
-        throw new Error('This user has scanner role and would be denied dashboard access. Scanners should use the mobile app only.')
-      }
+      // All roles can access the dashboard (scanners can use web scanning feature)
+      // Role-based restrictions are handled within individual pages
 
       setError(`✅ Test user ${email} found with role: ${userProfile.role}. This user would be granted dashboard access. Use Google Sign-in above to authenticate.`)
     } catch (error: any) {
@@ -186,7 +184,7 @@ export default function LoginPage() {
                 onClick={() => handleTestSignIn('scanner1@poppatjamals.com')}
                 disabled={loading}
               >
-                Test: Scanner 1 (Should be denied)
+                Test: Scanner 1
               </Button>
             </Box>
 
@@ -199,9 +197,9 @@ export default function LoginPage() {
               <br />
               • Only pre-authorized users can sign in
               <br />
-              • Supervisors and superusers can access dashboard
+              • All roles can access the web dashboard
               <br />
-              • Scanners should use mobile app only
+              • Role-specific features are restricted within the app
             </Typography>
           </CardContent>
         </Card>

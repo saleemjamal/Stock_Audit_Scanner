@@ -39,6 +39,13 @@ mobile/android/gradlew.bat
 /mobile/android/app/debug
 /mobile/android/app/release
 
+# Keystore files (IMPORTANT - Never commit these!)
+*.jks
+*.keystore
+mobile/android/app/*.jks
+mobile/android/app/*.keystore
+mobile/android/gradle.properties
+
 # iOS specific (if added later)
 mobile/ios/Pods/
 mobile/ios/build/

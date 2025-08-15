@@ -14,67 +14,63 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  LinearProgress,
   Chip,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  DatePicker,
+  Button,
+  CircularProgress,
+  Alert,
+  Container,
 } from '@mui/material'
 import {
   Assessment,
-  Speed,
   CheckCircle,
   Timer,
-  TrendingUp,
-  People,
   LocationOn,
+  Download,
+  FileDownload,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
 
-interface AuditSession {
+interface CompletedAuditSession {
   id: string
   location_name: string
+  shortname: string
   started_at: string
-  completed_at: string | null
-  status: 'active' | 'completed' | 'paused'
+  completed_at: string
   total_rack_count: number
   completed_rack_count: number
+  approved_rack_count: number
   total_scans: number
   started_by_username: string
 }
 
-interface ScannerPerformance {
+interface UserProfile {
+  id: string
+  email: string
   username: string
-  role: string
-  total_scans: number
-  racks_completed: number
-  avg_scans_per_hour: number
-  accuracy_rate: number
-  last_active: string
+  role: 'scanner' | 'supervisor' | 'superuser'
+  location_ids: number[]
 }
 
-interface LocationMetrics {
-  location_name: string
-  total_racks: number
-  completed_racks: number
-  pending_racks: number
-  total_scans: number
-  completion_rate: number
+interface Location {
+  id: number
+  name: string
 }
 
 export default function ReportsPage() {
   const router = useRouter()
-  const [currentUser, setCurrentUser] = useState<any>(null)
-  const [auditSessions, setAuditSessions] = useState<AuditSession[]>([])
-  const [scannerPerformance, setScannerPerformance] = useState<ScannerPerformance[]>([])
-  const [locationMetrics, setLocationMetrics] = useState<LocationMetrics[]>([])
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [locations, setLocations] = useState<Location[]>([])
+  const [completedSessions, setCompletedSessions] = useState<CompletedAuditSession[]>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState<string>('all')
-  const [dateRange, setDateRange] = useState<string>('7')
+  const [selectedSession, setSelectedSession] = useState<string>('all')
   const supabase = createClient()
 
   useEffect(() => {
@@ -82,37 +78,32 @@ export default function ReportsPage() {
   }, [])
 
   useEffect(() => {
-    if (currentUser) {
-      loadReportData()
+    if (userProfile) {
+      loadCompletedSessions()
     }
-  }, [selectedLocation, dateRange, currentUser])
+  }, [selectedLocation, userProfile])
 
   const checkAuthAndLoadData = async () => {
     try {
-      const { data: { session }, error } = await supabase.auth.getSession()
-      
-      if (error || !session) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
         router.push('/auth/login')
         return
       }
 
-      const { data: userProfile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('users')
         .select('*')
-        .eq('email', session.user.email)
+        .eq('email', user.email)
         .single()
 
-      if (profileError || !userProfile) {
-        router.push('/auth/login')
-        return
-      }
-
-      if (userProfile.role === 'scanner') {
+      if (!profile || profile.role === 'scanner') {
         router.push('/dashboard?error=insufficient_permissions')
         return
       }
 
-      setCurrentUser(userProfile)
+      setUserProfile(profile)
+      await loadLocations(profile)
     } catch (error) {
       console.error('Auth check error:', error)
       router.push('/auth/login')
@@ -121,394 +112,454 @@ export default function ReportsPage() {
     }
   }
 
-  const loadReportData = async () => {
+  const loadLocations = async (profile: UserProfile) => {
     try {
-      const dateFilter = new Date()
-      dateFilter.setDate(dateFilter.getDate() - parseInt(dateRange))
+      let query = supabase
+        .from('locations')
+        .select('id, name')
+        .eq('active', true)
+        .order('name')
 
-      // Load audit sessions
-      let auditQuery = supabase
+      // Filter by user's locations if not superuser
+      if (profile.role !== 'superuser' && profile.location_ids?.length > 0) {
+        query = query.in('id', profile.location_ids)
+      }
+
+      const { data, error } = await query
+      if (error) throw error
+      setLocations(data || [])
+    } catch (error) {
+      console.error('Error loading locations:', error)
+    }
+  }
+
+  const loadCompletedSessions = async () => {
+    try {
+      console.log('Loading completed audit sessions...')
+      
+      // Build query for completed sessions only
+      let query = supabase
         .from('audit_sessions')
         .select(`
           id,
           location_id,
+          shortname,
           started_at,
           completed_at,
-          status,
           total_rack_count,
           locations!inner(name),
           users!audit_sessions_started_by_fkey(username)
         `)
-        .gte('started_at', dateFilter.toISOString())
+        .eq('status', 'completed')
+        .order('completed_at', { ascending: false })
 
+      // Filter by location if not "all"
       if (selectedLocation !== 'all') {
-        auditQuery = auditQuery.eq('location_id', selectedLocation)
+        query = query.eq('location_id', parseInt(selectedLocation))
       }
 
-      const { data: sessions, error: sessionsError } = await auditQuery
+      // Filter by user's locations if not superuser
+      if (userProfile?.role !== 'superuser' && userProfile?.location_ids?.length) {
+        query = query.in('location_id', userProfile.location_ids)
+      }
 
-      if (sessionsError) throw sessionsError
+      const { data: sessions, error } = await query
+      if (error) throw error
 
-      // Transform audit sessions data
-      const transformedSessions = sessions?.map(session => ({
-        id: session.id,
-        location_name: (session as any).locations.name,
-        started_at: session.started_at,
-        completed_at: session.completed_at,
-        status: session.status,
-        total_rack_count: session.total_rack_count,
-        completed_rack_count: 0, // Would need to calculate from racks table
-        total_scans: 0, // Would need to calculate from scans table
-        started_by_username: (session as any).users.username,
-      })) || []
+      console.log('Completed sessions:', sessions)
 
-      setAuditSessions(transformedSessions)
+      // Get additional statistics for each session
+      const sessionsWithStats = await Promise.all(
+        (sessions || []).map(async (session) => {
+          // Get rack statistics
+          const { data: racks } = await supabase
+            .from('racks')
+            .select('status')
+            .eq('audit_session_id', session.id)
 
-      // Load scanner performance (mock data for now - would need complex queries)
-      const mockScannerPerformance = [
-        {
-          username: 'scanner1',
-          role: 'scanner',
-          total_scans: 1250,
-          racks_completed: 15,
-          avg_scans_per_hour: 156,
-          accuracy_rate: 98.5,
-          last_active: '2025-01-08T10:30:00Z'
-        },
-        {
-          username: 'supervisor1',
-          role: 'supervisor',
-          total_scans: 890,
-          racks_completed: 12,
-          avg_scans_per_hour: 134,
-          accuracy_rate: 99.2,
-          last_active: '2025-01-08T09:15:00Z'
-        }
-      ]
-      setScannerPerformance(mockScannerPerformance)
+          const completedRackCount = racks?.filter(r => 
+            r.status === 'approved' || r.status === 'ready_for_approval'
+          ).length || 0
+          
+          const approvedRackCount = racks?.filter(r => r.status === 'approved').length || 0
 
-      // Load location metrics (mock data for now)
-      const mockLocationMetrics = [
-        {
-          location_name: 'Downtown Store',
-          total_racks: 45,
-          completed_racks: 32,
-          pending_racks: 8,
-          total_scans: 2340,
-          completion_rate: 71.1
-        },
-        {
-          location_name: 'Warehouse A',
-          total_racks: 120,
-          completed_racks: 89,
-          pending_racks: 15,
-          total_scans: 5670,
-          completion_rate: 74.2
-        }
-      ]
-      setLocationMetrics(mockLocationMetrics)
+          // Get total scan count
+          const { data: scans } = await supabase
+            .from('scans')
+            .select('id')
+            .eq('audit_session_id', session.id)
 
+          const totalScans = scans?.length || 0
+
+          return {
+            id: session.id,
+            location_name: (session as any).locations.name,
+            shortname: session.shortname || 'N/A',
+            started_at: session.started_at,
+            completed_at: session.completed_at,
+            total_rack_count: session.total_rack_count,
+            completed_rack_count: completedRackCount,
+            approved_rack_count: approvedRackCount,
+            total_scans: totalScans,
+            started_by_username: (session as any).users?.username || 'Unknown',
+          }
+        })
+      )
+
+      setCompletedSessions(sessionsWithStats)
     } catch (error) {
-      console.error('Error loading report data:', error)
+      console.error('Error loading completed sessions:', error)
     }
   }
 
-  const calculateOverallStats = () => {
-    const totalRacks = locationMetrics.reduce((sum, loc) => sum + loc.total_racks, 0)
-    const completedRacks = locationMetrics.reduce((sum, loc) => sum + loc.completed_racks, 0)
-    const totalScans = scannerPerformance.reduce((sum, scanner) => sum + scanner.total_scans, 0)
-    const avgAccuracy = scannerPerformance.reduce((sum, scanner) => sum + scanner.accuracy_rate, 0) / scannerPerformance.length
+  const exportSessionCSV = async (sessionId: string) => {
+    setExporting(true)
+    try {
+      console.log('Exporting CSV for session:', sessionId)
+      
+      const { data: scans, error } = await supabase
+        .from('scans')
+        .select('barcode')
+        .eq('audit_session_id', sessionId)
+        .order('created_at')
 
-    return {
-      totalRacks,
-      completedRacks,
-      totalScans,
-      avgAccuracy: avgAccuracy || 0,
-      completionRate: totalRacks > 0 ? (completedRacks / totalRacks) * 100 : 0
+      if (error) throw error
+      if (!scans || scans.length === 0) {
+        alert('No scans found for this session')
+        return
+      }
+
+      // Create CSV content with single column of barcodes
+      const csvContent = [
+        'barcode', // Header
+        ...scans.map(scan => scan.barcode)
+      ].join('\n')
+
+      // Find session info for filename
+      const session = completedSessions.find(s => s.id === sessionId)
+      const filename = session ? 
+        `${session.shortname}-${session.location_name}-scans.csv`.replace(/[^a-zA-Z0-9-_]/g, '_') :
+        `audit-session-${sessionId}-scans.csv`
+
+      // Download the file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', filename)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      console.log(`Exported ${scans.length} barcodes to ${filename}`)
+    } catch (error) {
+      console.error('Error exporting CSV:', error)
+      alert('Failed to export CSV. Please try again.')
+    } finally {
+      setExporting(false)
     }
   }
 
-  const overallStats = calculateOverallStats()
+  const exportAllSessionsCSV = async () => {
+    setExporting(true)
+    try {
+      console.log('Exporting CSV for all sessions')
+      
+      // Get all scans from displayed sessions
+      const sessionIds = selectedSession === 'all' 
+        ? completedSessions.map(s => s.id)
+        : [selectedSession]
 
-  const statCards = [
-    {
-      title: 'Total Scans',
-      value: overallStats.totalScans.toLocaleString(),
-      icon: <Assessment />,
-      color: 'primary.main',
-    },
-    {
-      title: 'Completion Rate',
-      value: `${overallStats.completionRate.toFixed(1)}%`,
-      icon: <CheckCircle />,
-      color: 'success.main',
-    },
-    {
-      title: 'Avg Accuracy',
-      value: `${overallStats.avgAccuracy.toFixed(1)}%`,
-      icon: <TrendingUp />,
-      color: 'info.main',
-    },
-    {
-      title: 'Active Scanners',
-      value: scannerPerformance.length.toString(),
-      icon: <People />,
-      color: 'warning.main',
-    },
-  ]
+      const { data: scans, error } = await supabase
+        .from('scans')
+        .select('barcode')
+        .in('audit_session_id', sessionIds)
+        .order('created_at')
+
+      if (error) throw error
+      if (!scans || scans.length === 0) {
+        alert('No scans found for the selected sessions')
+        return
+      }
+
+      // Create CSV content with single column of barcodes
+      const csvContent = [
+        'barcode', // Header
+        ...scans.map(scan => scan.barcode)
+      ].join('\n')
+
+      const filename = selectedSession === 'all'
+        ? `all-completed-sessions-scans.csv`
+        : `session-${selectedSession}-scans.csv`
+
+      // Download the file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', filename)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      console.log(`Exported ${scans.length} barcodes to ${filename}`)
+    } catch (error) {
+      console.error('Error exporting CSV:', error)
+      alert('Failed to export CSV. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   if (loading) {
     return (
       <DashboardLayout>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-          <Typography>Loading...</Typography>
-        </Box>
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        </Container>
       </DashboardLayout>
     )
   }
 
+  const totalScans = completedSessions.reduce((sum, session) => sum + session.total_scans, 0)
+  const totalRacks = completedSessions.reduce((sum, session) => sum + session.total_rack_count, 0)
+  const approvedRacks = completedSessions.reduce((sum, session) => sum + session.approved_rack_count, 0)
+
   return (
     <DashboardLayout>
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Audit Reports & Analytics
-        </Typography>
-
-        {/* Filters */}
-        <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Location</InputLabel>
-            <Select
-              value={selectedLocation}
-              onChange={(e) => setSelectedLocation(e.target.value)}
-              label="Location"
-            >
-              <MenuItem value="all">All Locations</MenuItem>
-              {locationMetrics.map((location) => (
-                <MenuItem key={location.location_name} value={location.location_name}>
-                  {location.location_name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Period</InputLabel>
-            <Select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              label="Period"
-            >
-              <MenuItem value="1">Last Day</MenuItem>
-              <MenuItem value="7">Last 7 Days</MenuItem>
-              <MenuItem value="30">Last 30 Days</MenuItem>
-              <MenuItem value="90">Last 90 Days</MenuItem>
-            </Select>
-          </FormControl>
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Typography variant="h4" component="h1">
+            Reports & Data Export
+          </Typography>
         </Box>
 
-        {/* Overview Stats */}
+        {/* Info Alert */}
+        <Alert severity="info" sx={{ mb: 3 }}>
+          This page shows completed audit sessions only. Active sessions are managed on the dashboard.
+        </Alert>
+
+        {/* Summary Stats */}
         <Grid container spacing={3} sx={{ mb: 3 }}>
-          {statCards.map((card, index) => (
-            <Grid item xs={12} sm={6} md={3} key={index}>
-              <Card>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Box
-                      sx={{
-                        p: 1,
-                        borderRadius: 1,
-                        backgroundColor: card.color,
-                        color: 'white',
-                        mr: 2,
-                      }}
-                    >
-                      {card.icon}
-                    </Box>
-                    <Box>
-                      <Typography variant="h4" component="div">
-                        {card.value}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {card.title}
-                      </Typography>
-                    </Box>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ p: 1, borderRadius: 1, backgroundColor: 'primary.main', color: 'white', mr: 2 }}>
+                    <Timer />
                   </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-
-        <Grid container spacing={3}>
-          {/* Scanner Performance */}
-          <Grid item xs={12} lg={8}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <People sx={{ mr: 1 }} />
-                  Scanner Performance
-                </Typography>
-                <TableContainer component={Paper} variant="outlined">
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Scanner</TableCell>
-                        <TableCell align="right">Total Scans</TableCell>
-                        <TableCell align="right">Racks Done</TableCell>
-                        <TableCell align="right">Scans/Hour</TableCell>
-                        <TableCell align="right">Accuracy</TableCell>
-                        <TableCell align="right">Last Active</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {scannerPerformance.map((scanner) => (
-                        <TableRow key={scanner.username}>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              {scanner.username}
-                              <Chip
-                                label={scanner.role}
-                                size="small"
-                                color={scanner.role === 'supervisor' ? 'warning' : 'info'}
-                                sx={{ ml: 1, textTransform: 'capitalize' }}
-                              />
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right">{scanner.total_scans.toLocaleString()}</TableCell>
-                          <TableCell align="right">{scanner.racks_completed}</TableCell>
-                          <TableCell align="right">{scanner.avg_scans_per_hour}</TableCell>
-                          <TableCell align="right">
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                              {scanner.accuracy_rate.toFixed(1)}%
-                              <Box sx={{ width: 60, ml: 1 }}>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={scanner.accuracy_rate}
-                                  color={scanner.accuracy_rate > 98 ? 'success' : scanner.accuracy_rate > 95 ? 'warning' : 'error'}
-                                />
-                              </Box>
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right">
-                            {new Date(scanner.last_active).toLocaleString()}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Location Metrics */}
-          <Grid item xs={12} lg={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <LocationOn sx={{ mr: 1 }} />
-                  Location Progress
-                </Typography>
-                {locationMetrics.map((location) => (
-                  <Box key={location.location_name} sx={{ mb: 3 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body2" fontWeight="medium">
-                        {location.location_name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {location.completion_rate.toFixed(1)}%
-                      </Typography>
-                    </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={location.completion_rate}
-                      sx={{ height: 8, borderRadius: 4, mb: 1 }}
-                      color={location.completion_rate > 80 ? 'success' : location.completion_rate > 60 ? 'warning' : 'error'}
-                    />
-                    <Typography variant="caption" color="text.secondary">
-                      {location.completed_racks}/{location.total_racks} racks • {location.total_scans.toLocaleString()} scans
+                  <Box>
+                    <Typography variant="h4" component="div">
+                      {completedSessions.length}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Completed Sessions
                     </Typography>
                   </Box>
-                ))}
+                </Box>
               </CardContent>
             </Card>
           </Grid>
-
-          {/* Recent Audit Sessions */}
-          <Grid item xs={12}>
+          <Grid item xs={12} sm={6} md={3}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Timer sx={{ mr: 1 }} />
-                  Recent Audit Sessions
-                </Typography>
-                <TableContainer component={Paper} variant="outlined">
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Location</TableCell>
-                        <TableCell>Started By</TableCell>
-                        <TableCell>Started</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell align="right">Total Racks</TableCell>
-                        <TableCell align="right">Completed</TableCell>
-                        <TableCell align="right">Progress</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {auditSessions.map((session) => (
-                        <TableRow key={session.id}>
-                          <TableCell>{session.location_name}</TableCell>
-                          <TableCell>{session.started_by_username}</TableCell>
-                          <TableCell>
-                            {new Date(session.started_at).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={session.status}
-                              color={
-                                session.status === 'completed' ? 'success' :
-                                session.status === 'active' ? 'primary' : 'default'
-                              }
-                              size="small"
-                              sx={{ textTransform: 'capitalize' }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">{session.total_rack_count}</TableCell>
-                          <TableCell align="right">{session.completed_rack_count}</TableCell>
-                          <TableCell align="right">
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                              {session.total_rack_count > 0 ? 
-                                `${((session.completed_rack_count / session.total_rack_count) * 100).toFixed(1)}%` : 
-                                '0%'
-                              }
-                              <Box sx={{ width: 60, ml: 1 }}>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={session.total_rack_count > 0 ? (session.completed_rack_count / session.total_rack_count) * 100 : 0}
-                                />
-                              </Box>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {auditSessions.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={7} align="center">
-                            <Typography color="text.secondary">
-                              No audit sessions found for the selected period.
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ p: 1, borderRadius: 1, backgroundColor: 'success.main', color: 'white', mr: 2 }}>
+                    <Assessment />
+                  </Box>
+                  <Box>
+                    <Typography variant="h4" component="div">
+                      {totalScans.toLocaleString()}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Scans
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ p: 1, borderRadius: 1, backgroundColor: 'info.main', color: 'white', mr: 2 }}>
+                    <CheckCircle />
+                  </Box>
+                  <Box>
+                    <Typography variant="h4" component="div">
+                      {totalRacks}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Racks
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ p: 1, borderRadius: 1, backgroundColor: 'warning.main', color: 'white', mr: 2 }}>
+                    <LocationOn />
+                  </Box>
+                  <Box>
+                    <Typography variant="h4" component="div">
+                      {approvedRacks}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Approved Racks
+                    </Typography>
+                  </Box>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
         </Grid>
-      </Box>
+
+        {/* Filters and Export */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                  <InputLabel>Location Filter</InputLabel>
+                  <Select
+                    value={selectedLocation}
+                    onChange={(e) => setSelectedLocation(e.target.value)}
+                    label="Location Filter"
+                  >
+                    <MenuItem value="all">All Locations</MenuItem>
+                    {locations.map((location) => (
+                      <MenuItem key={location.id} value={location.id.toString()}>
+                        {location.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                  <InputLabel>Session Filter</InputLabel>
+                  <Select
+                    value={selectedSession}
+                    onChange={(e) => setSelectedSession(e.target.value)}
+                    label="Session Filter"
+                  >
+                    <MenuItem value="all">All Sessions</MenuItem>
+                    {completedSessions.map((session) => (
+                      <MenuItem key={session.id} value={session.id}>
+                        {session.shortname} - {session.location_name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              
+              <Button
+                variant="contained"
+                startIcon={<Download />}
+                onClick={exportAllSessionsCSV}
+                disabled={exporting || completedSessions.length === 0}
+                sx={{ whiteSpace: 'nowrap' }}
+              >
+                {exporting ? 'Exporting...' : 'Export All Scans CSV'}
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+
+        {/* Completed Sessions Table */}
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+              <CheckCircle sx={{ mr: 1 }} />
+              Completed Audit Sessions
+            </Typography>
+            
+            <TableContainer component={Paper} variant="outlined">
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Session</TableCell>
+                    <TableCell>Location</TableCell>
+                    <TableCell>Started By</TableCell>
+                    <TableCell>Completed</TableCell>
+                    <TableCell align="right">Racks</TableCell>
+                    <TableCell align="right">Scans</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {completedSessions.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} align="center">
+                        <Typography color="text.secondary" sx={{ py: 4 }}>
+                          No completed sessions found. Complete an active session to see reports here.
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    completedSessions.map((session) => (
+                      <TableRow key={session.id}>
+                        <TableCell>
+                          <Box>
+                            <Typography variant="body2" fontWeight="bold">
+                              {session.shortname}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              ID: {session.id.slice(0, 8)}...
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell>{session.location_name}</TableCell>
+                        <TableCell>{session.started_by_username}</TableCell>
+                        <TableCell>
+                          {new Date(session.completed_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Box>
+                            <Typography variant="body2">
+                              {session.approved_rack_count}/{session.total_rack_count}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {session.total_rack_count > 0 ? 
+                                `${((session.approved_rack_count / session.total_rack_count) * 100).toFixed(1)}%` : 
+                                '0%'
+                              }
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight="bold">
+                            {session.total_scans.toLocaleString()}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<FileDownload />}
+                            onClick={() => exportSessionCSV(session.id)}
+                            disabled={exporting || session.total_scans === 0}
+                          >
+                            CSV
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
+      </Container>
     </DashboardLayout>
   )
 }

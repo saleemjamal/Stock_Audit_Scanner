@@ -14,6 +14,7 @@ import {
   List,
   IconButton,
   Divider,
+  Searchbar,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { RouteProp, useNavigation } from '@react-navigation/native';
@@ -43,6 +44,7 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
   
   const [refreshing, setRefreshing] = useState(false);
   const [deletingScans, setDeletingScans] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     // Load existing scans for this rack
@@ -182,6 +184,13 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
 
   const canConfirm = scanCount > 0 && !rackLoading;
 
+  // Filter scans based on search query
+  const filteredScans = searchQuery.trim() === ''
+    ? currentRackScans
+    : currentRackScans.filter(scan => 
+        scan.barcode.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+
   return (
     <View style={styles.container}>
       {/* Header Info */}
@@ -219,6 +228,26 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
             />
           </View>
           
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <Searchbar
+              placeholder="Search by barcode..."
+              onChangeText={setSearchQuery}
+              value={searchQuery}
+              style={styles.searchBar}
+              iconColor="#4caf50"
+              clearIcon={searchQuery ? "close" : undefined}
+              mode="bar"
+            />
+          </View>
+          
+          {/* Search Results Count */}
+          {searchQuery && (
+            <Text style={styles.searchResultsText}>
+              Showing {filteredScans.length} of {currentRackScans.length} scans
+            </Text>
+          )}
+          
           <ScrollView 
             style={styles.scansList}
             refreshControl={
@@ -228,10 +257,12 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
               />
             }
           >
-            {currentRackScans.length === 0 ? (
-              <Text style={styles.emptyText}>No scans yet</Text>
+            {filteredScans.length === 0 ? (
+              <Text style={styles.emptyText}>
+                {searchQuery ? `No scans matching "${searchQuery}"` : 'No scans yet'}
+              </Text>
             ) : (
-              currentRackScans.map((scan, index) => (
+              filteredScans.map((scan, index) => (
                 <View key={scan.id}>
                   <View style={styles.scanItemContainer}>
                     <View style={styles.scanInfo}>
@@ -346,6 +377,20 @@ const styles = StyleSheet.create({
   },
   scansList: {
     maxHeight: 400,
+  },
+  searchContainer: {
+    marginBottom: 12,
+  },
+  searchBar: {
+    backgroundColor: '#f8f9fa',
+    elevation: 1,
+    height: 48,
+  },
+  searchResultsText: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 8,
+    paddingHorizontal: 8,
   },
   emptyText: {
     textAlign: 'center',

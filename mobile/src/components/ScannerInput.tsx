@@ -36,9 +36,15 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
   const [inputValue, setInputValue] = useState('');
   const [manualMode, setManualMode] = useState(false);
   const [lastInputTime, setLastInputTime] = useState(Date.now());
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const inputRef = useRef<RNTextInput>(null);
   const scanTimeoutRef = useRef<NodeJS.Timeout>();
+  const processingTimeoutRef = useRef<NodeJS.Timeout>();
+  
+  // Barcode debouncing for USB scanner double-trigger prevention
+  const recentBarcodesRef = useRef<Map<string, number>>(new Map());
+  const DEBOUNCE_WINDOW_MS = 1500; // Prevent same barcode within 1.5 seconds
 
   useEffect(() => {
     // Auto-focus on mount and when returning to screen
@@ -58,6 +64,11 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
       if (scanTimeoutRef.current) {
         clearTimeout(scanTimeoutRef.current);
       }
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+      }
+      // Clean up debounce map on unmount
+      recentBarcodesRef.current.clear();
     };
   }, [manualMode]);
 
@@ -112,16 +123,60 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
   };
 
   const processScan = async (barcode: string, manual: boolean = false) => {
+    const currentTime = Date.now();
+    
+    // Prevent multiple rapid calls from same scan event
+    if (isProcessing) {
+      console.log('🚫 ScannerInput: Already processing, ignoring duplicate');
+      return;
+    }
+    
+    // Barcode debouncing - prevent same barcode within debounce window
+    const lastScanTime = recentBarcodesRef.current.get(barcode);
+    if (lastScanTime && (currentTime - lastScanTime) < DEBOUNCE_WINDOW_MS) {
+      const timeSinceLastScan = currentTime - lastScanTime;
+      console.log(`🚫 ScannerInput: Duplicate barcode "${barcode}" ignored (${timeSinceLastScan}ms since last scan)`);
+      clearInput();
+      return;
+    }
+    
     if (!isValidBarcode(barcode)) {
       dispatch(showWarningMessage('Invalid barcode format'));
       clearInput();
       return;
     }
 
+    // Record this barcode scan time for debouncing
+    recentBarcodesRef.current.set(barcode, currentTime);
+    
+    // Clean up old entries to prevent memory leaks (keep only last 50 scans)
+    if (recentBarcodesRef.current.size > 50) {
+      const entries = Array.from(recentBarcodesRef.current.entries());
+      entries.sort((a, b) => b[1] - a[1]); // Sort by timestamp, newest first
+      recentBarcodesRef.current.clear();
+      entries.slice(0, 25).forEach(([code, time]) => {
+        recentBarcodesRef.current.set(code, time);
+      });
+    }
+
+    // Set processing flag to prevent duplicates (extended timeout)
+    setIsProcessing(true);
+    
+    // Clear processing flag after 1.5 seconds (increased from 1s)
+    processingTimeoutRef.current = setTimeout(() => {
+      setIsProcessing(false);
+    }, 1500);
+
     dispatch(updateLastActivity());
 
     try {
-      console.log('🔍 ScannerInput: Processing scan:', barcode);
+      console.log('🔍 ScannerInput: Processing scan:', {
+        barcode,
+        manual,
+        timestamp: currentTime,
+        previousScan: lastScanTime,
+        timeSinceLastScan: lastScanTime ? currentTime - lastScanTime : 'N/A'
+      });
       
       // Add to scan queue (fast, async)
       const scanId = await addScanToQueue({

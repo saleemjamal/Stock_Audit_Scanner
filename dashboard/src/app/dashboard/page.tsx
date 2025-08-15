@@ -5,13 +5,10 @@ import { Box, Grid, Typography, Card, CardContent, CircularProgress } from '@mui
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
-import AuditOverview from '@/components/AuditOverview'
 import KPIOverview from '@/components/KPIOverview'
 import RackMap from '@/components/RackMap'
-import StatusViews from '@/components/StatusViews'
 import RecentActivity from '@/components/RecentActivity'
 import PendingApprovals from '@/components/PendingApprovals'
-import LocationStats from '@/components/LocationStats'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -22,6 +19,27 @@ export default function DashboardPage() {
   useEffect(() => {
     checkAuth()
   }, [])
+
+  const enforceSessionSingleton = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/single-session-login`, {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        const result = await response.json()
+        console.log('Session cleanup:', result)
+      }
+    } catch (error) {
+      console.warn('Session cleanup failed:', error)
+      // Continue anyway - not critical for functionality
+    }
+  }
 
   const checkAuth = async () => {
     try {
@@ -52,12 +70,12 @@ export default function DashboardPage() {
         return
       }
 
-      // Allow supervisors and superusers only (block scanners)
-      if (userProfile.role === 'scanner') {
-        await supabase.auth.signOut()
-        router.push('/auth/login?error=insufficient_permissions')
-        return
-      }
+      // All authenticated users can access the dashboard
+      // Scanners can use the web scanning feature
+      // Role-based restrictions are handled in individual features
+
+      // Enforce single session - revoke other sessions
+      await enforceSessionSingleton()
 
       setCurrentUser(userProfile)
     } catch (error) {
@@ -87,50 +105,29 @@ export default function DashboardPage() {
           Dashboard Overview
         </Typography>
         
+        {/* Streamlined KPI Bar */}
+        <Box sx={{ mb: 3 }}>
+          <Suspense fallback={<CircularProgress />}>
+            <KPIOverview />
+          </Suspense>
+        </Box>
+
         <Grid container spacing={3}>
-          {/* KPI Overview */}
-          <Grid item xs={12}>
-            <Suspense fallback={<CircularProgress />}>
-              <KPIOverview />
-            </Suspense>
-          </Grid>
-
-          {/* Basic Stats */}
-          <Grid item xs={12}>
-            <Suspense fallback={<CircularProgress />}>
-              <AuditOverview />
-            </Suspense>
-          </Grid>
-
-          {/* Rack Map */}
-          <Grid item xs={12} md={8}>
+          {/* Rack Map - Primary Focus */}
+          <Grid item xs={12} lg={8}>
             <Suspense fallback={<CircularProgress />}>
               <RackMap />
             </Suspense>
           </Grid>
 
-          {/* Pending Approvals */}
-          <Grid item xs={12} md={4}>
+          {/* Pending Approvals - Action Sidebar */}
+          <Grid item xs={12} lg={4}>
             <Suspense fallback={<CircularProgress />}>
               <PendingApprovals />
             </Suspense>
           </Grid>
 
-          {/* Status Views */}
-          <Grid item xs={12}>
-            <Suspense fallback={<CircularProgress />}>
-              <StatusViews />
-            </Suspense>
-          </Grid>
-
-          {/* Location Stats */}
-          <Grid item xs={12}>
-            <Suspense fallback={<CircularProgress />}>
-              <LocationStats />
-            </Suspense>
-          </Grid>
-
-          {/* Recent Activity */}
+          {/* Recent Activity - Full Width Bottom */}
           <Grid item xs={12}>
             <Suspense fallback={<CircularProgress />}>
               <RecentActivity />

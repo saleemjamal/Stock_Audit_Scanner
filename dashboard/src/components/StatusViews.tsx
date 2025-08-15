@@ -75,7 +75,21 @@ export default function StatusViews() {
     try {
       const supabase = createClient()
       
-      // Load racks from active sessions
+      // Get the single active session
+      const { data: activeSession } = await supabase
+        .from('audit_sessions')
+        .select('id, shortname')
+        .eq('status', 'active')
+        .single()
+
+      if (!activeSession) {
+        setRacks([])
+        setScanners([])
+        setLoading(false)
+        return
+      }
+      
+      // Load racks from the active session
       const { data: racksData } = await supabase
         .from('racks')
         .select(`
@@ -85,20 +99,17 @@ export default function StatusViews() {
           scanner_id,
           assigned_at,
           ready_at,
-          audit_sessions!inner(
-            status,
-            shortname
-          ),
           users:scanner_id(username)
         `)
-        .eq('audit_sessions.status', 'active')
+        .eq('audit_session_id', activeSession.id)
         .order('rack_number')
 
-      // Get scan counts for each rack
+      // Get scan counts for each rack from the active session
       const rackIds = racksData?.map(r => r.id) || []
       const { data: scanCounts } = await supabase
         .from('scans')
         .select('rack_id')
+        .eq('audit_session_id', activeSession.id)
         .in('rack_id', rackIds)
 
       // Process rack data with scan counts
@@ -106,14 +117,15 @@ export default function StatusViews() {
         const scanCount = scanCounts?.filter(s => s.rack_id === rack.id).length || 0
         return {
           ...rack,
-          scanner_name: rack.users?.username,
-          scan_count: scanCount
+          scanner_name: (rack as any).users?.username,
+          scan_count: scanCount,
+          audit_sessions: { shortname: activeSession.shortname }
         }
       }) || []
 
       setRacks(racksWithCounts)
 
-      // Load scanner data
+      // Load scanner data from the active session
       const { data: activeScans } = await supabase
         .from('scans')
         .select(`
@@ -121,33 +133,29 @@ export default function StatusViews() {
           created_at,
           racks!inner(
             rack_number,
-            status,
-            audit_sessions!inner(
-              status,
-              shortname
-            )
+            status
           )
         `)
-        .eq('racks.audit_sessions.status', 'active')
+        .eq('audit_session_id', activeSession.id)
         .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
 
       // Get unique scanners
-      const scannerIds = [...new Set(activeScans?.map(s => s.scanner_id) || [])]
+      const scannerIds = Array.from(new Set(activeScans?.map(s => s.scanner_id) || []))
       
       const { data: scannerUsers } = await supabase
         .from('users')
         .select('id, username, email')
         .in('id', scannerIds)
 
-      // Get current rack assignments
+      // Get current rack assignments from the active session
       const { data: currentAssignments } = await supabase
         .from('racks')
         .select(`
           scanner_id,
           rack_number,
-          status,
-          audit_sessions!inner(shortname)
+          status
         `)
+        .eq('audit_session_id', activeSession.id)
         .eq('status', 'assigned')
         .in('scanner_id', scannerIds)
 
@@ -177,7 +185,7 @@ export default function StatusViews() {
           id: user.id,
           username: user.username,
           email: user.email,
-          current_rack: currentRack ? `${currentRack.audit_sessions?.shortname}-${currentRack.rack_number.padStart(3, '0')}` : undefined,
+          current_rack: currentRack ? `${activeSession.shortname}-${currentRack.rack_number.padStart(3, '0')}` : undefined,
           current_rack_status: currentRack?.status,
           scans_today: todayScans.length,
           last_activity: userScans[0]?.created_at,
@@ -330,7 +338,7 @@ export default function StatusViews() {
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <Typography variant="body2" fontWeight="bold">
                                   {rack.audit_sessions?.shortname ? 
-                                    `${rack.audit_sessions.shortname}-${rack.rack_number.padStart(3, '0')}` : 
+                                    `${(rack as any).audit_sessions?.shortname}-${rack.rack_number.padStart(3, '0')}` : 
                                     rack.rack_number}
                                 </Typography>
                                 {rack.scan_count > 0 && (

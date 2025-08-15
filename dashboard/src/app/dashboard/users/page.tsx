@@ -179,7 +179,6 @@ export default function UsersPage() {
       setFormData({
         username: user.username,
         email: user.email || '',
-        password: '',
         role: user.role,
         location_ids: user.location_ids || [],
         active: user.active,

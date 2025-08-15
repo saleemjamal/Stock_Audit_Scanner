@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Card,
   CardContent,
@@ -17,6 +18,7 @@ import {
   Schedule,
   Assignment,
   Person,
+  Visibility,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 
@@ -38,6 +40,7 @@ interface Rack {
 export default function RackMap() {
   const [racks, setRacks] = useState<Rack[]>([])
   const [loading, setLoading] = useState(true)
+  const router = useRouter()
 
   useEffect(() => {
     loadRacks()
@@ -47,6 +50,19 @@ export default function RackMap() {
     try {
       const supabase = createClient()
       
+      // Get the single active session
+      const { data: activeSession } = await supabase
+        .from('audit_sessions')
+        .select('id, shortname')
+        .eq('status', 'active')
+        .single()
+
+      if (!activeSession) {
+        setRacks([])
+        setLoading(false)
+        return
+      }
+
       const { data: racksData } = await supabase
         .from('racks')
         .select(`
@@ -57,19 +73,16 @@ export default function RackMap() {
           assigned_at,
           ready_at,
           approved_at,
-          rejected_at,
-          audit_sessions!inner(
-            status,
-            shortname
-          )
+          rejected_at
         `)
-        .eq('audit_sessions.status', 'active')
+        .eq('audit_session_id', activeSession.id)
         .order('rack_number')
 
       if (racksData) {
         setRacks(racksData.map(rack => ({
           ...rack,
-          scanner_name: rack.scanner_id ? 'Scanner' : undefined
+          scanner_name: rack.scanner_id ? 'Scanner' : undefined,
+          audit_sessions: { shortname: activeSession.shortname }
         })))
       }
     } catch (error) {
@@ -126,7 +139,23 @@ export default function RackMap() {
       lines.push(`Started: ${new Date(rack.assigned_at).toLocaleString()}`)
     }
     
+    // Add click hint for viewable racks
+    if (isRackViewable(rack)) {
+      lines.push('Click to view details')
+    }
+    
     return lines.join('\n')
+  }
+
+  const isRackViewable = (rack: Rack) => {
+    // Only racks that are ready for approval, approved, or rejected have scan data to view
+    return ['ready_for_approval', 'approved', 'rejected'].includes(rack.status)
+  }
+
+  const handleRackClick = (rack: Rack) => {
+    if (isRackViewable(rack)) {
+      router.push(`/dashboard/approvals/${rack.id}`)
+    }
   }
 
   const statusCounts = racks.reduce((acc, rack) => {
@@ -180,23 +209,31 @@ export default function RackMap() {
               <Tooltip title={formatTooltipContent(rack)} placement="top">
                 <Card
                   variant="outlined"
+                  onClick={() => handleRackClick(rack)}
                   sx={{
                     minHeight: 80,
                     backgroundColor: getStatusColor(rack.status),
                     color: rack.status === 'available' ? '#000' : '#fff',
-                    cursor: 'pointer',
-                    transition: 'transform 0.2s',
+                    cursor: isRackViewable(rack) ? 'pointer' : 'default',
+                    transition: 'transform 0.2s, box-shadow 0.2s',
+                    position: 'relative',
                     '&:hover': {
-                      transform: 'scale(1.05)',
+                      transform: isRackViewable(rack) ? 'scale(1.05)' : 'scale(1.02)',
+                      boxShadow: isRackViewable(rack) ? 3 : 1,
                     }
                   }}
                 >
                   <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                       <Typography variant="body2" fontWeight="bold">
-                        {rack.audit_sessions?.shortname ? `${rack.audit_sessions.shortname}-${rack.rack_number.padStart(3, '0')}` : rack.rack_number}
+                        {(rack as any).audit_sessions?.shortname ? `${(rack as any).audit_sessions.shortname}-${rack.rack_number.padStart(3, '0')}` : rack.rack_number}
                       </Typography>
-                      {getStatusIcon(rack.status)}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {isRackViewable(rack) && (
+                          <Visibility sx={{ fontSize: 14, opacity: 0.7 }} />
+                        )}
+                        {getStatusIcon(rack.status)}
+                      </Box>
                     </Box>
                     
                     <Typography variant="caption" display="block">

@@ -194,7 +194,7 @@ export default function AuditSessionsPage() {
       }
 
       // Get location names
-      const locationIds = [...new Set(sessionsData.map(s => s.location_id))]
+      const locationIds = Array.from(new Set(sessionsData.map(s => s.location_id)))
       const { data: locations } = await supabase
         .from('locations')
         .select('id, name')
@@ -203,7 +203,7 @@ export default function AuditSessionsPage() {
       console.log('Locations:', locations)
 
       // Get user names
-      const userIds = [...new Set(sessionsData.map(s => s.started_by).filter(Boolean))]
+      const userIds = Array.from(new Set(sessionsData.map(s => s.started_by).filter(Boolean)))
       let users: any[] = []
       if (userIds.length > 0) {
         const { data: userData } = await supabase
@@ -270,18 +270,18 @@ export default function AuditSessionsPage() {
 
     setProcessing(true)
     try {
-      // Check for existing active session at this location
+      // Check for existing active session anywhere (enforce single active session globally)
       const { data: existingSession } = await supabase
         .from('audit_sessions')
-        .select('*')
-        .eq('location_id', selectedLocation)
+        .select('id, location_id, locations!inner(name)')
         .eq('status', 'active')
         .single()
 
       if (existingSession) {
+        const locationName = (existingSession as any).locations?.name || 'Unknown Location'
         setSnackbar({ 
           open: true, 
-          message: 'An active session already exists for this location', 
+          message: `Please complete the current audit session at ${locationName} before starting a new one`, 
           severity: 'error' 
         })
         setProcessing(false)

@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { supabase, supabaseHelpers } from '../../services/supabase';
 import { User } from '../../../../shared/types';
+import Config from 'react-native-config';
 
 interface AuthState {
   user: User | null;
@@ -47,6 +48,24 @@ export const signInWithPassword = createAsyncThunk(
       
       if (!data.success) {
         throw new Error(data.message || 'Invalid username or password');
+      }
+      
+      // Enforce single session - revoke other sessions
+      if (data.access_token) {
+        try {
+          const response = await fetch(`${Config.SUPABASE_URL}/functions/v1/single-session-login`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${data.access_token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          const result = await response.json();
+          console.log('Session cleanup:', result);
+        } catch (error) {
+          console.warn('Session cleanup failed:', error);
+          // Continue anyway - not critical for functionality
+        }
       }
       
       // Create a mock session for compatibility

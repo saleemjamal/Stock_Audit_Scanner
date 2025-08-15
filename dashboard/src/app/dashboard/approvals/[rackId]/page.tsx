@@ -1,5 +1,11 @@
 'use client'
 
+// Force dynamic rendering at runtime - this is a client component
+// These exports ensure the page is never statically generated
+export const dynamic = 'force-dynamic'
+export const dynamicParams = true
+export const revalidate = 0
+
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
@@ -28,6 +34,10 @@ import {
   ListItem,
   ListItemText,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material'
 import {
   CheckCircle,
@@ -70,7 +80,7 @@ interface ScanDetail {
 
 type ViewMode = 'list' | 'grid' | 'compact'
 
-export default function RackDetailPage() {
+function RackDetailPageContent() {
   const params = useParams()
   const router = useRouter()
   const rackId = params.rackId as string
@@ -89,6 +99,8 @@ export default function RackDetailPage() {
     message: '', 
     severity: 'success' as 'success' | 'error' 
   })
+  const [rejectionDialog, setRejectionDialog] = useState(false)
+  const [rejectionReason, setRejectionReason] = useState('')
   
   const supabase = createClient()
 
@@ -170,25 +182,23 @@ export default function RackDetailPage() {
     }
   }
 
-  const handleRackAction = async (action: 'approve' | 'reject') => {
+  const handleApprove = async () => {
     if (!rack) return
 
     const confirmed = confirm(
-      `Are you sure you want to ${action} rack ${rack.rack_number} with ${rack.total_scans} scans?`
+      `Are you sure you want to approve rack ${rack.rack_number} with ${rack.total_scans} scans?`
     )
     if (!confirmed) return
 
     setProcessing(true)
     try {
-      const newStatus = action === 'approve' ? 'approved' : 'rejected'
       const timestamp = new Date().toISOString()
       
       const { error } = await supabase
         .from('racks')
         .update({ 
-          status: newStatus,
-          approved_at: action === 'approve' ? timestamp : null,
-          rejected_at: action === 'reject' ? timestamp : null,
+          status: 'approved',
+          approved_at: timestamp,
         })
         .eq('id', rackId)
 
@@ -196,7 +206,7 @@ export default function RackDetailPage() {
 
       setSnackbar({ 
         open: true, 
-        message: `Rack ${action}d successfully`, 
+        message: 'Rack approved successfully', 
         severity: 'success' 
       })
       
@@ -206,10 +216,60 @@ export default function RackDetailPage() {
       }, 1000)
 
     } catch (error: any) {
-      console.error(`Error ${action}ing rack:`, error)
+      console.error('Error approving rack:', error)
       setSnackbar({ 
         open: true, 
-        message: `Failed to ${action} rack`, 
+        message: 'Failed to approve rack', 
+        severity: 'error' 
+      })
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleReject = () => {
+    setRejectionDialog(true)
+    setRejectionReason('')
+  }
+
+  const handleRejectionWithReason = async () => {
+    if (!rack) return
+
+    setProcessing(true)
+    try {
+      const timestamp = new Date().toISOString()
+      
+      const { error } = await supabase
+        .from('racks')
+        .update({ 
+          status: 'rejected',
+          rejection_reason: rejectionReason.trim(),
+          rejected_at: timestamp,
+        })
+        .eq('id', rackId)
+
+      if (error) throw error
+
+      setSnackbar({ 
+        open: true, 
+        message: 'Rack rejected successfully', 
+        severity: 'success' 
+      })
+      
+      // Close dialog
+      setRejectionDialog(false)
+      setRejectionReason('')
+      
+      // Navigate back to approvals list after a brief delay
+      setTimeout(() => {
+        router.push('/dashboard/approvals')
+      }, 1000)
+
+    } catch (error: any) {
+      console.error('Error rejecting rack:', error)
+      setSnackbar({ 
+        open: true, 
+        message: 'Failed to reject rack', 
         severity: 'error' 
       })
     } finally {
@@ -293,7 +353,7 @@ export default function RackDetailPage() {
               variant="outlined"
               color="error"
               startIcon={<Cancel />}
-              onClick={() => handleRackAction('reject')}
+              onClick={handleReject}
               disabled={processing}
             >
               Reject
@@ -302,7 +362,7 @@ export default function RackDetailPage() {
               variant="contained"
               color="success"
               startIcon={<CheckCircle />}
-              onClick={() => handleRackAction('approve')}
+              onClick={handleApprove}
               disabled={processing}
             >
               Approve
@@ -590,7 +650,7 @@ export default function RackDetailPage() {
             variant="outlined"
             color="error"
             startIcon={<Cancel />}
-            onClick={() => handleRackAction('reject')}
+            onClick={handleReject}
             disabled={processing}
             sx={{ bgcolor: 'background.paper' }}
           >
@@ -601,12 +661,51 @@ export default function RackDetailPage() {
             variant="contained"
             color="success"
             startIcon={<CheckCircle />}
-            onClick={() => handleRackAction('approve')}
+            onClick={handleApprove}
             disabled={processing}
           >
             Approve
           </Button>
         </Box>
+
+        {/* Rejection Dialog */}
+        <Dialog 
+          open={rejectionDialog} 
+          onClose={() => setRejectionDialog(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Reject Rack {rack?.rack_number}</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Please specify what needs to be corrected so the scanner knows how to fix it.
+            </Typography>
+            <TextField
+              autoFocus
+              fullWidth
+              multiline
+              rows={3}
+              label="Rejection Reason"
+              placeholder="e.g., Missing items from back shelf, incorrect quantities, damaged items not noted..."
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              required
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRejectionDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRejectionWithReason}
+              color="error" 
+              variant="contained"
+              disabled={!rejectionReason.trim()}
+            >
+              Reject Rack
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Snackbar */}
         <Snackbar
@@ -624,4 +723,34 @@ export default function RackDetailPage() {
       </Container>
     </DashboardLayout>
   )
+}
+
+// Error boundary wrapper and default export
+export default function RackDetailPage() {
+  try {
+    return <RackDetailPageContent />
+  } catch (error) {
+    console.error('Error rendering rack details:', error)
+    return (
+      <DashboardLayout>
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Alert severity="error">
+            <Typography variant="h6">Error Loading Rack Details</Typography>
+            <Typography variant="body2">
+              An error occurred while loading the rack details. Please try refreshing the page or contact support if the issue persists.
+            </Typography>
+          </Alert>
+          <Box sx={{ mt: 2 }}>
+            <Button
+              startIcon={<ArrowBack />}
+              onClick={() => window.location.href = '/dashboard/approvals'}
+              variant="contained"
+            >
+              Back to Approvals
+            </Button>
+          </Box>
+        </Container>
+      </DashboardLayout>
+    )
+  }
 }

@@ -1,0 +1,16 @@
+Stock Audit Scanner v1.0.0
+
+Initial Release Features:
+- Barcode scanning with USB scanner support
+- Manual barcode entry
+- Offline scan queue with auto-sync
+- Rack selection and management
+- Review scans before submission
+- Google OAuth authentication
+- Role-based access control
+
+Test Focus Areas:
+- USB scanner connectivity
+- Scan accuracy and speed
+- Queue sync reliability
+- Offline functionality

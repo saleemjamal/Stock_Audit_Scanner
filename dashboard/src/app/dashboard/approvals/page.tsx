@@ -22,6 +22,10 @@ import {
   TextField,
   InputAdornment,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material'
 import {
   CheckCircle,
@@ -57,31 +61,72 @@ export default function ApprovalsPage() {
     message: '', 
     severity: 'success' as 'success' | 'error' 
   })
+  const [rejectionDialog, setRejectionDialog] = useState({
+    open: false,
+    rackId: '',
+    rackNumber: ''
+  })
+  const [rejectionReason, setRejectionReason] = useState('')
   
   const supabase = createClient()
   const router = useRouter()
 
   useEffect(() => {
     loadPendingApprovals()
-    
-    // Set up real-time subscription for rack status changes
-    const subscription = supabase
-      .channel('pending_approvals_page')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'racks', filter: 'status=eq.ready_for_approval' },
-        () => loadPendingApprovals()
-      )
-      .subscribe()
+  }, [])
 
-    return () => {
-      subscription.unsubscribe()
+  useEffect(() => {
+    // Set up real-time subscription only after we know the active session
+    const setupSubscription = async () => {
+      const { data: activeSession } = await supabase
+        .from('audit_sessions')
+        .select('id')
+        .eq('status', 'active')
+        .single()
+
+      if (!activeSession) return
+
+      const subscription = supabase
+        .channel('pending_approvals_page')
+        .on('postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'racks', 
+            filter: `audit_session_id=eq.${activeSession.id}` 
+          },
+          () => loadPendingApprovals()
+        )
+        .subscribe()
+
+      return () => {
+        subscription.unsubscribe()
+      }
     }
+
+    setupSubscription()
   }, [])
 
   const loadPendingApprovals = async () => {
     try {
       setLoading(true)
       console.log('Loading pending approvals...')
+      
+      // First get the active audit session
+      const { data: activeSession, error: sessionError } = await supabase
+        .from('audit_sessions')
+        .select('id')
+        .eq('status', 'active')
+        .single()
+
+      if (sessionError || !activeSession) {
+        console.log('No active audit session found')
+        setPendingRacks([])
+        setLoading(false)
+        return
+      }
+
+      console.log('Active session ID:', activeSession.id)
       
       // Get current user profile for location access control
       const { data: { user } } = await supabase.auth.getUser()
@@ -95,22 +140,12 @@ export default function ApprovalsPage() {
 
       console.log('User profile:', userProfile)
 
-      // First, let's check all racks to see their statuses
-      const { data: allRacks, error: testError } = await supabase
-        .from('racks')
-        .select('status')
-      
-      if (testError) {
-        console.error('Test query error:', testError)
-      } else {
-        console.log('All rack statuses:', [...new Set(allRacks?.map(r => r.status) || [])])
-      }
-
-      // Build base query - simplified to avoid field name issues
+      // Build base query - filter by active session AND status
       let query = supabase
         .from('racks')
         .select('*')
         .eq('status', 'ready_for_approval')
+        .eq('audit_session_id', activeSession.id)  // Only from current active session
 
       // Apply location filtering for supervisors
       if (userProfile?.role === 'supervisor' && userProfile?.location_ids?.length > 0) {
@@ -133,14 +168,14 @@ export default function ApprovalsPage() {
       }
 
       // Get location names
-      const locationIds = [...new Set(racks.map(r => r.location_id))]
+      const locationIds = Array.from(new Set(racks.map(r => r.location_id)))
       const { data: locations } = await supabase
         .from('locations')
         .select('id, name')
         .in('id', locationIds)
 
       // Get scanner usernames  
-      const scannerIds = [...new Set(racks.map(r => r.scanner_id).filter(Boolean))]
+      const scannerIds = Array.from(new Set(racks.map(r => r.scanner_id).filter(Boolean)))
       const { data: scanners } = await supabase
         .from('users')
         .select('id, username, email')
@@ -167,11 +202,11 @@ export default function ApprovalsPage() {
 
       console.log('Transformed racks:', transformedRacks)
       setPendingRacks(transformedRacks)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading pending approvals:', error)
       setSnackbar({ 
         open: true, 
-        message: `Failed to load pending approvals: ${error.message}`, 
+        message: `Failed to load pending approvals: ${error.message || 'Unknown error'}`, 
         severity: 'error' 
       })
     } finally {
@@ -184,18 +219,16 @@ export default function ApprovalsPage() {
     router.push(`/dashboard/approvals/${rack.id}`)
   }
 
-  const handleRackAction = async (rackId: string, action: 'approve' | 'reject') => {
+  const handleRackAction = async (rackId: string, action: 'approve') => {
     try {
       setProcessingAction(rackId)
-      const newStatus = action === 'approve' ? 'approved' : 'rejected'
       const timestamp = new Date().toISOString()
       
       const { error } = await supabase
         .from('racks')
         .update({ 
-          status: newStatus,
-          approved_at: action === 'approve' ? timestamp : null,
-          rejected_at: action === 'reject' ? timestamp : null,
+          status: 'approved',
+          approved_at: timestamp,
         })
         .eq('id', rackId)
 
@@ -206,14 +239,63 @@ export default function ApprovalsPage() {
       
       setSnackbar({ 
         open: true, 
-        message: `Rack ${action}d successfully`, 
+        message: 'Rack approved successfully', 
         severity: 'success' 
       })
     } catch (error) {
-      console.error(`Error ${action}ing rack:`, error)
+      console.error('Error approving rack:', error)
       setSnackbar({ 
         open: true, 
-        message: `Failed to ${action} rack`, 
+        message: 'Failed to approve rack', 
+        severity: 'error' 
+      })
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const handleRejectClick = (rack: PendingRack) => {
+    setRejectionDialog({
+      open: true,
+      rackId: rack.id,
+      rackNumber: rack.rack_number
+    })
+    setRejectionReason('')
+  }
+
+  const handleRejectionWithReason = async () => {
+    try {
+      setProcessingAction(rejectionDialog.rackId)
+      const timestamp = new Date().toISOString()
+      
+      const { error } = await supabase
+        .from('racks')
+        .update({ 
+          status: 'rejected',
+          rejection_reason: rejectionReason.trim(),
+          rejected_at: timestamp,
+        })
+        .eq('id', rejectionDialog.rackId)
+
+      if (error) throw error
+
+      // Remove the rack from the list
+      setPendingRacks(prev => prev.filter(rack => rack.id !== rejectionDialog.rackId))
+      
+      // Close dialog
+      setRejectionDialog({ open: false, rackId: '', rackNumber: '' })
+      setRejectionReason('')
+      
+      setSnackbar({ 
+        open: true, 
+        message: 'Rack rejected successfully', 
+        severity: 'success' 
+      })
+    } catch (error) {
+      console.error('Error rejecting rack:', error)
+      setSnackbar({ 
+        open: true, 
+        message: 'Failed to reject rack', 
         severity: 'error' 
       })
     } finally {
@@ -359,7 +441,7 @@ export default function ApprovalsPage() {
                             <IconButton
                               size="small"
                               color="error"
-                              onClick={() => handleRackAction(rack.id, 'reject')}
+                              onClick={() => handleRejectClick(rack)}
                               disabled={processingAction === rack.id}
                               title="Reject rack"
                             >
@@ -377,6 +459,45 @@ export default function ApprovalsPage() {
         </CardContent>
       </Card>
 
+
+      {/* Rejection Dialog */}
+      <Dialog 
+        open={rejectionDialog.open} 
+        onClose={() => setRejectionDialog({ open: false, rackId: '', rackNumber: '' })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reject Rack {rejectionDialog.rackNumber}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Please specify what needs to be corrected so the scanner knows how to fix it.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            rows={3}
+            label="Rejection Reason"
+            placeholder="e.g., Missing items from back shelf, incorrect quantities, damaged items not noted..."
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectionDialog({ open: false, rackId: '', rackNumber: '' })}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleRejectionWithReason}
+            color="error" 
+            variant="contained"
+            disabled={!rejectionReason.trim()}
+          >
+            Reject Rack
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar */}
       <Snackbar

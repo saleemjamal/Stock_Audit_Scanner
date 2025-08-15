@@ -10,7 +10,10 @@
     "test": "jest",
     "clean": "react-native clean",
     "build:android": "cd android && ./gradlew assembleRelease",
-    "build:android-debug": "cd android && ./gradlew assembleDebug"
+    "build:android-debug": "cd android && ./gradlew assembleDebug",
+    "build:release": "cd android && gradlew clean && gradlew assembleRelease",
+    "distribute": "cd android && gradlew assembleRelease appDistributionUploadRelease",
+    "distribute:notes": "cd android && gradlew assembleRelease appDistributionUploadRelease -PreleaseNotes=\"$(cat ../release-notes.txt)\""
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.21.0",

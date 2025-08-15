@@ -1,0 +1,472 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import {
+  Container,
+  Typography,
+  Card,
+  CardContent,
+  Grid,
+  Box,
+  Button,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  IconButton,
+  Alert,
+  CircularProgress,
+  Paper,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Divider,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableRow,
+} from '@mui/material'
+import {
+  ArrowBack,
+  Check,
+  Delete,
+  Refresh,
+  Assignment,
+  QrCode,
+  Schedule,
+  LocationOn,
+} from '@mui/icons-material'
+import { createClient } from '@/lib/supabase'
+import DashboardLayout from '@/components/DashboardLayout'
+
+interface Scan {
+  id: string
+  barcode: string
+  created_at: string
+  manual_entry: boolean
+  scanner_id: string
+  rack_id: string
+}
+
+interface Rack {
+  id: string
+  rack_number: string
+  status: string
+  location_id: number
+  audit_session_id: string
+}
+
+interface Location {
+  id: number
+  name: string
+  city: string
+  state: string
+}
+
+export default function ReviewScansPage() {
+  const router = useRouter()
+  const params = useParams()
+  const rackId = params.rackId as string
+  
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [rack, setRack] = useState<Rack | null>(null)
+  const [location, setLocation] = useState<Location | null>(null)
+  const [scans, setScans] = useState<Scan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState<Set<string>>(new Set())
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Dialog states
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; scan: Scan | null }>({
+    open: false,
+    scan: null
+  })
+  const [confirmDialog, setConfirmDialog] = useState(false)
+  
+  const supabase = createClient()
+
+  useEffect(() => {
+    loadData()
+  }, [rackId])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Check authentication
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        router.push('/auth/login')
+        return
+      }
+
+      // Get user profile
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', session.user.email)
+        .single()
+
+      if (profileError) throw profileError
+      setCurrentUser(userProfile)
+
+      // Load rack details
+      const { data: rackData, error: rackError } = await supabase
+        .from('racks')
+        .select('*')
+        .eq('id', rackId)
+        .single()
+
+      if (rackError) throw rackError
+      setRack(rackData)
+
+      // Load location details
+      const { data: locationData, error: locationError } = await supabase
+        .from('locations')
+        .select('*')
+        .eq('id', rackData.location_id)
+        .single()
+
+      if (locationError) throw locationError
+      setLocation(locationData)
+
+      // Load scans for this rack
+      await loadScans()
+      
+    } catch (error: any) {
+      console.error('Error loading review data:', error)
+      setError(error.message || 'Failed to load review data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadScans = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('scans')
+        .select('*')
+        .eq('rack_id', rackId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setScans(data || [])
+    } catch (error: any) {
+      console.error('Error loading scans:', error)
+      setError('Failed to load scans')
+    }
+  }
+
+  const handleDeleteClick = (scan: Scan) => {
+    setDeleteDialog({ open: true, scan })
+  }
+
+  const handleDeleteConfirm = async () => {
+    const scan = deleteDialog.scan
+    if (!scan) return
+
+    setDeleteDialog({ open: false, scan: null })
+    setDeleting(prev => new Set(prev).add(scan.id))
+
+    try {
+      // Optimistic UI: remove from state immediately
+      setScans(prev => prev.filter(s => s.id !== scan.id))
+
+      // Delete from database
+      const { error } = await supabase
+        .from('scans')
+        .delete()
+        .eq('id', scan.id)
+        .eq('scanner_id', currentUser.id) // Security: only delete own scans
+
+      if (error) throw error
+
+      console.log('Scan deleted successfully:', scan.id)
+    } catch (error: any) {
+      console.error('Delete failed:', error)
+      // Restore scan to state on error
+      loadScans()
+      setError(`Failed to delete scan: ${error.message}`)
+    } finally {
+      setDeleting(prev => {
+        const next = new Set(prev)
+        next.delete(scan.id)
+        return next
+      })
+    }
+  }
+
+  const handleSubmitForApproval = () => {
+    if (scans.length === 0) {
+      setError('You need to scan at least one item before submitting for approval.')
+      return
+    }
+    setConfirmDialog(true)
+  }
+
+  const handleFinalSubmit = async () => {
+    setConfirmDialog(false)
+    setSubmitting(true)
+
+    try {
+      // Update rack status to ready_for_approval and clear scanner assignment
+      const { error } = await supabase
+        .from('racks')
+        .update({ 
+          status: 'ready_for_approval',
+          ready_at: new Date().toISOString(),
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', rackId)
+
+      if (error) throw error
+
+      // Navigate back to scanning page - user can now select a new rack
+      router.push('/dashboard/scanning')
+    } catch (error: any) {
+      console.error('Failed to submit for approval:', error)
+      setError(`Failed to submit for approval: ${error.message}`)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const formatDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleString()
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+            <CircularProgress />
+          </Box>
+        </Container>
+      </DashboardLayout>
+    )
+  }
+
+  if (error && !rack) {
+    return (
+      <DashboardLayout>
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+          <Button
+            startIcon={<ArrowBack />}
+            onClick={() => router.push('/dashboard/scanning')}
+          >
+            Back to Scanning
+          </Button>
+        </Container>
+      </DashboardLayout>
+    )
+  }
+
+  return (
+    <DashboardLayout>
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        {/* Header */}
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <Assignment sx={{ mr: 2, fontSize: 32, color: 'primary.main' }} />
+          <Typography variant="h4" component="h1">
+            Review Your Scans
+          </Typography>
+        </Box>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
+
+        <Grid container spacing={3}>
+          {/* Header Info Card */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom color="primary">
+                  Review Your Scans
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Last chance to make changes before sending to supervisor
+                </Typography>
+                
+                <TableContainer>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><strong>Location:</strong></TableCell>
+                        <TableCell>{location?.name}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Rack:</strong></TableCell>
+                        <TableCell>{rack?.rack_number}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><strong>Total Scans:</strong></TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={scans.length} 
+                            color="primary" 
+                            size="small"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Scans List Card */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6">
+                    Scanned Items
+                  </Typography>
+                  <Button
+                    startIcon={<Refresh />}
+                    onClick={loadScans}
+                    size="small"
+                  >
+                    Refresh
+                  </Button>
+                </Box>
+
+                {scans.length === 0 ? (
+                  <Paper sx={{ p: 4, textAlign: 'center', bgcolor: 'grey.50' }}>
+                    <QrCode sx={{ fontSize: 48, color: 'grey.400', mb: 2 }} />
+                    <Typography color="text.secondary">
+                      No scans yet
+                    </Typography>
+                  </Paper>
+                ) : (
+                  <List>
+                    {scans.map((scan, index) => (
+                      <Box key={scan.id}>
+                        <ListItem
+                          sx={{ 
+                            bgcolor: index === 0 ? 'action.hover' : 'transparent',
+                            borderRadius: 1,
+                            mb: 0.5
+                          }}
+                        >
+                          <Box sx={{ mr: 2 }}>
+                            {scan.manual_entry ? (
+                              <Typography sx={{ fontSize: 20 }}>⌨️</Typography>
+                            ) : (
+                              <QrCode color="success" />
+                            )}
+                          </Box>
+                          <ListItemText
+                            primary={
+                              <Typography variant="body1" fontWeight="medium">
+                                {scan.barcode}
+                              </Typography>
+                            }
+                            secondary={formatDateTime(scan.created_at)}
+                          />
+                          <ListItemSecondaryAction>
+                            <IconButton
+                              edge="end"
+                              onClick={() => handleDeleteClick(scan)}
+                              disabled={deleting.has(scan.id)}
+                              sx={{ 
+                                bgcolor: 'error.light',
+                                color: 'error.contrastText',
+                                '&:hover': { bgcolor: 'error.main' },
+                                '&:disabled': { opacity: 0.5 }
+                              }}
+                            >
+                              <Typography sx={{ fontSize: 20 }}>🗑️</Typography>
+                            </IconButton>
+                          </ListItemSecondaryAction>
+                        </ListItem>
+                        {index < scans.length - 1 && <Divider />}
+                      </Box>
+                    ))}
+                  </List>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Action Buttons */}
+          <Grid item xs={12}>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+              <Button
+                variant="outlined"
+                startIcon={<ArrowBack />}
+                onClick={() => router.push('/dashboard/scanning')}
+                size="large"
+              >
+                Back to Scanning
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <Check />}
+                onClick={handleSubmitForApproval}
+                disabled={scans.length === 0 || submitting}
+                size="large"
+                sx={{ minWidth: 200 }}
+              >
+                {submitting ? 'Submitting...' : 'Confirm Ready for Approval'}
+              </Button>
+            </Box>
+          </Grid>
+        </Grid>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, scan: null })}>
+          <DialogTitle>Delete Scan</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Remove scan: <strong>{deleteDialog.scan?.barcode}</strong>?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialog({ open: false, scan: null })}>
+              Cancel
+            </Button>
+            <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Final Confirmation Dialog */}
+        <Dialog open={confirmDialog} onClose={() => setConfirmDialog(false)}>
+          <DialogTitle>Confirm Ready for Approval</DialogTitle>
+          <DialogContent>
+            <Typography gutterBottom>
+              Send rack <strong>{rack?.rack_number}</strong> with <strong>{scans.length}</strong> scans to supervisor for approval?
+            </Typography>
+            <Typography variant="body2" color="warning.main">
+              Once submitted, you cannot make further changes.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleFinalSubmit} variant="contained" color="primary">
+              Confirm
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Container>
+    </DashboardLayout>
+  )
+}
