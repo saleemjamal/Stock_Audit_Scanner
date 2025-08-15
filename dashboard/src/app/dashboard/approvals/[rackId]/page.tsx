@@ -455,6 +455,15 @@ function RackDetailPageContent() {
                       {stats.totalScans}
                     </Typography>
                   </Box>
+                  
+                  <Box sx={{ mb: 1 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Items
+                    </Typography>
+                    <Typography variant="h5" color="primary.main" fontWeight="bold">
+                      {scans.reduce((sum, scan) => sum + scan.quantity, 0)}
+                    </Typography>
+                  </Box>
 
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                     <Box>

@@ -31,8 +31,6 @@ interface Rack {
   ready_at?: string
   approved_at?: string
   rejected_at?: string
-  scanner_name?: string
-  total_scans?: number
   audit_sessions?: {
     shortname?: string
   }
@@ -52,19 +50,24 @@ export default function RackMap() {
       const supabase = createClient()
       
       // Get the single active session
-      const { data: activeSession } = await supabase
+      const { data: activeSession, error: sessionError } = await supabase
         .from('audit_sessions')
         .select('id, shortname')
         .eq('status', 'active')
         .single()
 
+      console.log('Active session query:', { activeSession, sessionError })
+
       if (!activeSession) {
+        console.log('No active session found')
         setRacks([])
         setLoading(false)
         return
       }
 
-      const { data: racksData } = await supabase
+      console.log('Found active session:', activeSession)
+
+      const { data: racksData, error: racksError } = await supabase
         .from('racks')
         .select(`
           id,
@@ -74,31 +77,17 @@ export default function RackMap() {
           assigned_at,
           ready_at,
           approved_at,
-          rejected_at,
-          total_scans
+          rejected_at
         `)
         .eq('audit_session_id', activeSession.id)
         .order('rack_number')
 
-      if (racksData) {
-        // Get scanner usernames
-        const scannerIds = Array.from(new Set(racksData.map(r => r.scanner_id).filter(Boolean)))
-        let scannerMap = new Map<string, string>()
-        
-        if (scannerIds.length > 0) {
-          const { data: scanners } = await supabase
-            .from('users')
-            .select('id, username')
-            .in('id', scannerIds)
-          
-          if (scanners) {
-            scannerMap = new Map(scanners.map(s => [s.id, s.username]))
-          }
-        }
+      console.log('Racks query:', { racksData, racksError, sessionId: activeSession.id })
 
+      if (racksData) {
+        console.log('Setting racks:', racksData.length)
         setRacks(racksData.map(rack => ({
           ...rack,
-          scanner_name: rack.scanner_id ? scannerMap.get(rack.scanner_id) || 'Unknown' : undefined,
           audit_sessions: { shortname: activeSession.shortname }
         })))
       }
@@ -147,10 +136,6 @@ export default function RackMap() {
       `Rack: ${rack.rack_number}`,
       `Status: ${getStatusLabel(rack.status)}`,
     ]
-    
-    if (rack.scanner_name && rack.status !== 'available') {
-      lines.push(`Scanner: ${rack.scanner_name}`)
-    }
     
     if (rack.assigned_at) {
       lines.push(`Started: ${new Date(rack.assigned_at).toLocaleString()}`)
@@ -254,18 +239,8 @@ export default function RackMap() {
                     </Box>
                     
                     <Typography variant="caption" display="block">
-                      Scans: {rack.total_scans || 0}
+                      Status: {getStatusLabel(rack.status)}
                     </Typography>
-                    
-                    {rack.scanner_name && rack.status !== 'available' && (
-                      <Typography variant="caption" display="block" sx={{ 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {rack.scanner_name}
-                      </Typography>
-                    )}
                   </CardContent>
                 </Card>
               </Tooltip>

@@ -184,11 +184,13 @@ export default function ReportsPage() {
           const approvedRackCount = racks?.filter(r => r.status === 'approved').length || 0
 
           // Get total scan count
+          console.log('Loading scans for session:', session.id)
           const { data: scans } = await supabase
             .from('scans')
-            .select('id')
+            .select('id, audit_session_id')
             .eq('audit_session_id', session.id)
 
+          console.log('Found scans for session', session.id, ':', scans?.length, 'scans:', scans)
           const totalScans = scans?.length || 0
 
           return {
@@ -219,9 +221,11 @@ export default function ReportsPage() {
       
       const { data: scans, error } = await supabase
         .from('scans')
-        .select('barcode')
+        .select('barcode, audit_session_id')
         .eq('audit_session_id', sessionId)
         .order('created_at')
+        
+      console.log('Query result for session', sessionId, ':', scans)
 
       if (error) throw error
       if (!scans || scans.length === 0) {
@@ -261,57 +265,6 @@ export default function ReportsPage() {
     }
   }
 
-  const exportAllSessionsCSV = async () => {
-    setExporting(true)
-    try {
-      console.log('Exporting CSV for all sessions')
-      
-      // Get all scans from displayed sessions
-      const sessionIds = selectedSession === 'all' 
-        ? completedSessions.map(s => s.id)
-        : [selectedSession]
-
-      const { data: scans, error } = await supabase
-        .from('scans')
-        .select('barcode')
-        .in('audit_session_id', sessionIds)
-        .order('created_at')
-
-      if (error) throw error
-      if (!scans || scans.length === 0) {
-        alert('No scans found for the selected sessions')
-        return
-      }
-
-      // Create CSV content with single column of barcodes
-      const csvContent = [
-        'barcode', // Header
-        ...scans.map(scan => scan.barcode)
-      ].join('\n')
-
-      const filename = selectedSession === 'all'
-        ? `all-completed-sessions-scans.csv`
-        : `session-${selectedSession}-scans.csv`
-
-      // Download the file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-      const link = document.createElement('a')
-      const url = URL.createObjectURL(blob)
-      link.setAttribute('href', url)
-      link.setAttribute('download', filename)
-      link.style.visibility = 'hidden'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-
-      console.log(`Exported ${scans.length} barcodes to ${filename}`)
-    } catch (error) {
-      console.error('Error exporting CSV:', error)
-      alert('Failed to export CSV. Please try again.')
-    } finally {
-      setExporting(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -444,32 +397,8 @@ export default function ReportsPage() {
                   </Select>
                 </FormControl>
                 
-                <FormControl size="small" sx={{ minWidth: 200 }}>
-                  <InputLabel>Session Filter</InputLabel>
-                  <Select
-                    value={selectedSession}
-                    onChange={(e) => setSelectedSession(e.target.value)}
-                    label="Session Filter"
-                  >
-                    <MenuItem value="all">All Sessions</MenuItem>
-                    {completedSessions.map((session) => (
-                      <MenuItem key={session.id} value={session.id}>
-                        {session.shortname} - {session.location_name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
               </Box>
               
-              <Button
-                variant="contained"
-                startIcon={<Download />}
-                onClick={exportAllSessionsCSV}
-                disabled={exporting || completedSessions.length === 0}
-                sx={{ whiteSpace: 'nowrap' }}
-              >
-                {exporting ? 'Exporting...' : 'Export All Scans CSV'}
-              </Button>
             </Box>
           </CardContent>
         </Card>

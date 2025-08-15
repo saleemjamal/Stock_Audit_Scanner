@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
 import KPIOverview from '@/components/KPIOverview'
 import RackMap from '@/components/RackMap'
-import RecentActivity from '@/components/RecentActivity'
+import ScannerStatus from '@/components/ScannerStatus'
 import PendingApprovals from '@/components/PendingApprovals'
 
 export default function DashboardPage() {
@@ -113,24 +113,23 @@ export default function DashboardPage() {
         </Box>
 
         <Grid container spacing={3}>
-          {/* Rack Map - Primary Focus */}
-          <Grid item xs={12} lg={8}>
+          {/* Action Row - Scanner Status and Pending Approvals */}
+          <Grid item xs={12} lg={6}>
             <Suspense fallback={<CircularProgress />}>
-              <RackMap />
+              <ScannerStatus />
             </Suspense>
           </Grid>
-
-          {/* Pending Approvals - Action Sidebar */}
-          <Grid item xs={12} lg={4}>
+          
+          <Grid item xs={12} lg={6}>
             <Suspense fallback={<CircularProgress />}>
               <PendingApprovals />
             </Suspense>
           </Grid>
 
-          {/* Recent Activity - Full Width Bottom */}
+          {/* Rack Map - Full Width Below */}
           <Grid item xs={12}>
             <Suspense fallback={<CircularProgress />}>
-              <RecentActivity />
+              <RackMap />
             </Suspense>
           </Grid>
         </Grid>

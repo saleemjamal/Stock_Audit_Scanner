@@ -212,6 +212,10 @@ const ReviewScansScreen: React.FC<ReviewScansScreenProps> = ({ route, navigation
             <Text style={styles.infoLabel}>Total Scans:</Text>
             <Text style={styles.countNumber}>{scanCount}</Text>
           </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Total Items:</Text>
+            <Text style={styles.countNumber}>{currentRackScans.reduce((sum, scan) => sum + scan.quantity, 0)}</Text>
+          </View>
         </Card.Content>
       </Card>
 

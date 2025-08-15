@@ -87,20 +87,23 @@ dashboard/src/
 ### User Roles & Platform Access
 | Role | Mobile App | Web Dashboard | Capabilities |
 |------|------------|---------------|--------------|
-| **Scanner** | ✅ | ❌ | Scan items, mark racks complete |
+| **Scanner** | ✅ | ✅ (Limited) | Scan items, mark racks complete, web scanning |
 | **Supervisor** | ✅ | ✅ | All scanner features + approve/reject + reports |
 | **Super User** | ✅ | ✅ | All features + user management + location management |
 
 ### Key Features
 1. **Google OAuth + Whitelisting**: Only pre-authorized users can access the system
 2. **AsyncStorage Queue System**: Replaced SQLite with in-memory queue + AsyncStorage ring buffer for persistence
-3. **USB Scanner Support**: Direct barcode input via USB OTG
+3. **USB Scanner Support**: Direct barcode input via USB OTG (mobile and web)
 4. **Scanner Self-Review Workflow**: Scan → Review & Delete → Submit → Supervisor Approval
 5. **Real-time Updates**: Supabase subscriptions for live dashboard
-6. **Role-Based Access**: Platform restrictions based on user role
-7. **Dual-Platform Supervisors**: Can use both mobile and web for flexibility
+6. **Role-Based Access**: Scanner web access for scanning, full supervisor/admin access
+7. **Dual-Platform Operation**: Mobile app + web dashboard with cross-platform compatibility
 8. **Optimized Performance**: 15-second sync intervals, instant scan feedback, no database bottlenecks
-9. **Single Rack Workflow**: Scanners work on one rack at a time (recently implemented)
+9. **Single Rack Focus**: Both mobile and web enforce one rack at a time to prevent confusion
+10. **Smart Duplicate Detection**: One-time warnings instead of blocking scans
+11. **Collapsible UI**: Responsive dashboard with mini sidebar mode
+12. **Real-time Data**: Live scanner names and scan counts in rack maps
 
 ## Environment Setup
 
@@ -134,14 +137,15 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ## Key Development Considerations
 
 1. **Google OAuth Security**: Only pre-authorized users (added by superuser) can access system
-2. **Role-Based Access**: Enforce platform restrictions (scanners mobile-only, supervisors both)
+2. **Role-Based Access**: Scanner web access for scanning only, full supervisor/admin access
 3. **Offline Sync**: Mobile app must handle offline scanning and sync when online
-4. **Real-time Updates**: Dashboard should show live scanning activity
+4. **Real-time Updates**: Dashboard should show live scanning activity with actual data
 5. **Permissions**: Respect Row Level Security (RLS) policies in Supabase
-6. **Scanner Hardware**: Support USB OTG barcode scanners in HID keyboard mode
+6. **Scanner Hardware**: Support USB OTG barcode scanners in HID keyboard mode (mobile and web)
 7. **Performance**: Optimize for older Android devices used in warehouse environments
 8. **Super User Flexibility**: saleem@poppatjamals.com needs full system access
-9. **Supervisor Dual-Access**: Supervisors use web for approvals, mobile for hands-on work
+9. **Cross-Platform Compatibility**: Both platforms support scanning with single rack focus
+10. **UI Responsiveness**: Collapsible sidebar and responsive design for different screen sizes
 
 ## Business Requirements (Clarified)
 
@@ -162,6 +166,11 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 7. **Single-Device Enforcement**: Session revocation prevents concurrent logins ✅
 8. **Personal Stats Display**: Real-time scanning metrics for user motivation ✅
 9. **Rejection Workflow**: Supervisor rejection with reasons, scanner rework capability ✅
+10. **Cross-Platform Scanning**: Both mobile and web support barcode scanning ✅
+11. **Single Rack Focus**: Prevents confusion by enforcing one rack at a time ✅
+12. **Smart Duplicate Handling**: Informational warnings instead of blocking scans ✅
+13. **Responsive UI**: Collapsible sidebar and real-time data updates ✅
+14. **Barcode Search**: Find specific items in scan lists ✅
 
 ### NOT Implementing (Per User Feedback)
 - Auto-rack assignment (keep manual selection)
@@ -273,6 +282,12 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 4. **PendingApprovals Bug Fix** - Widget now correctly filters to active audit session only
 5. **Modern Theme Implementation** - Enhanced color palette, better contrast, professional styling
 6. **Custom Dual-Theme System** - User-defined light/dark palettes optimized for warehouse environments
+7. **Collapsible Sidebar** - Dashboard layout with 240px/60px mini mode and navigation highlighting
+8. **Web Scanner Access Control** - Removed scanner role blocking for web dashboard access
+9. **Single Rack Focus Pattern** - Web scanning enforces one rack at a time to prevent confusion
+10. **Smart Duplicate Detection** - Changed from blocking to one-time informational warnings
+11. **Real Data in Rack Map** - Shows actual scanner usernames and scan counts instead of placeholders
+12. **Mobile Barcode Search** - Added search functionality to ReviewScansScreen for finding specific items
 
 ✅ **Core System Features (Completed)**:
 1. **Complete Web Scanning System** - Dashboard scanning with USB scanner support and role-based access
