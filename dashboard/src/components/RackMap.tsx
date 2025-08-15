@@ -32,6 +32,7 @@ interface Rack {
   approved_at?: string
   rejected_at?: string
   scanner_name?: string
+  total_scans?: number
   audit_sessions?: {
     shortname?: string
   }
@@ -73,15 +74,31 @@ export default function RackMap() {
           assigned_at,
           ready_at,
           approved_at,
-          rejected_at
+          rejected_at,
+          total_scans
         `)
         .eq('audit_session_id', activeSession.id)
         .order('rack_number')
 
       if (racksData) {
+        // Get scanner usernames
+        const scannerIds = Array.from(new Set(racksData.map(r => r.scanner_id).filter(Boolean)))
+        let scannerMap = new Map<string, string>()
+        
+        if (scannerIds.length > 0) {
+          const { data: scanners } = await supabase
+            .from('users')
+            .select('id, username')
+            .in('id', scannerIds)
+          
+          if (scanners) {
+            scannerMap = new Map(scanners.map(s => [s.id, s.username]))
+          }
+        }
+
         setRacks(racksData.map(rack => ({
           ...rack,
-          scanner_name: rack.scanner_id ? 'Scanner' : undefined,
+          scanner_name: rack.scanner_id ? scannerMap.get(rack.scanner_id) || 'Unknown' : undefined,
           audit_sessions: { shortname: activeSession.shortname }
         })))
       }
@@ -237,7 +254,7 @@ export default function RackMap() {
                     </Box>
                     
                     <Typography variant="caption" display="block">
-                      Scans: TBD
+                      Scans: {rack.total_scans || 0}
                     </Typography>
                     
                     {rack.scanner_name && rack.status !== 'available' && (
