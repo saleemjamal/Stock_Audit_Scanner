@@ -184,13 +184,11 @@ export default function ReportsPage() {
           const approvedRackCount = racks?.filter(r => r.status === 'approved').length || 0
 
           // Get total scan count
-          console.log('Loading scans for session:', session.id)
           const { data: scans } = await supabase
             .from('scans')
-            .select('id, audit_session_id')
+            .select('id')
             .eq('audit_session_id', session.id)
 
-          console.log('Found scans for session', session.id, ':', scans?.length, 'scans:', scans)
           const totalScans = scans?.length || 0
 
           return {
@@ -221,7 +219,7 @@ export default function ReportsPage() {
       
       const { data: scans, error } = await supabase
         .from('scans')
-        .select('barcode, audit_session_id')
+        .select('barcode')
         .eq('audit_session_id', sessionId)
         .order('created_at')
         
