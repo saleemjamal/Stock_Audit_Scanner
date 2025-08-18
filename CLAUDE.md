@@ -84,13 +84,15 @@ dashboard/src/
 - **audit_sessions**: Audit session management
 - **racks**: Auto-generated racks with approval workflow
 - **scans**: Individual barcode scans with offline sync support
+- **damaged_items**: Damage reporting with photo evidence and approval workflow
+- **add_on_items**: Add-on requests for items without barcodes (documentation system)
 
 ### User Roles & Platform Access
 | Role | Mobile App | Web Dashboard | Capabilities |
 |------|------------|---------------|--------------|
-| **Scanner** | ✅ | ✅ (Limited) | Scan items, mark racks complete, web scanning |
-| **Supervisor** | ✅ | ✅ | All scanner features + approve/reject + reports |
-| **Super User** | ✅ | ✅ | All features + user management + location management |
+| **Scanner** | ✅ | ✅ (Limited) | Scan items, mark racks complete, web scanning, damage reporting |
+| **Supervisor** | ✅ | ✅ | All scanner features + approve/reject + reports + add-on creation |
+| **Super User** | ✅ | ✅ | All features + user management + location management + damage/add-on approvals |
 
 ### Key Features
 1. **Google OAuth + Whitelisting**: Only pre-authorized users can access the system
@@ -107,6 +109,10 @@ dashboard/src/
 12. **Real-time Data**: Live scanner names and scan counts in rack maps
 13. **Rack Detail Reports**: Two-tab reporting system with individual rack CSV exports for physical verification
 14. **Active Rack Filtering**: Option to include/exclude in-progress racks with status warnings
+15. **Comprehensive Damage System**: 3-photo damage reporting with approval workflow and stock removal tracking
+16. **Add-Ons Documentation System**: Document items without barcodes for manual goods inward processing
+17. **Session-Scoped Reporting**: Four-tab reporting (Sessions, Racks, Damages, Add-Ons) with CSV export
+18. **Scanner Performance Metrics**: Real-time scans/hour tracking and personal stats display
 
 ## Environment Setup
 
@@ -149,6 +155,8 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 8. **Super User Flexibility**: saleem@poppatjamals.com needs full system access
 9. **Cross-Platform Compatibility**: Both platforms support scanning with single rack focus
 10. **UI Responsiveness**: Collapsible sidebar and responsive design for different screen sizes
+11. **Session Scoping**: All metrics and reports must be scoped to current audit session (not lifetime totals)
+12. **Damage Reporting**: Camera API requires HTTPS, image compression for storage efficiency
 
 ## Business Requirements (Clarified)
 
@@ -278,17 +286,24 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 - **Code Quality**: Clean architecture with proper error handling ✅
 
 📋 **System Status** (Aug 18, 2025): 
-**PRODUCTION READY** - All core features implemented and tested, including comprehensive rack reporting system
+**PRODUCTION READY** - All core features implemented and tested, including comprehensive rack reporting system and add-ons documentation system
 
 ✅ **Latest Completed Features (Aug 18, 2025)**:
-1. **Rack Detail Reports System** - Complete two-tab Reports page with individual rack CSV exports for physical verification
-2. **Active Rack Filtering** - Toggle to include/exclude in-progress racks with warning indicators
-3. **Advanced Report Search** - Filter racks by number or scanner name within selected audit sessions
-4. **Status-Based Visual Indicators** - Color-coded rack status chips with emoji icons (🔄 In Progress, ✅ Approved, etc.)
-5. **Comprehensive CSV Export** - Individual rack reports with scan details, timestamps, and completion status
-6. **Mobile-Responsive Tables** - Horizontal scroll support across all TableContainer components
-7. **SQL Function Optimization** - Fixed ambiguous column references with proper table aliases
-8. **Enhanced Reports Navigation** - Clean separation between session-level and rack-level reporting
+1. **Unified Approvals System** - Consolidated all approvals (Racks/Damage/Add-ons) into single tabbed interface with role-based access
+2. **Role-Based Tab Visibility** - Supervisors see only Racks tab, Super Users see all three approval types
+3. **Enhanced Add-Ons Camera System** - Replaced custom camera with robust damage camera system featuring 3-photo progressive capture, compression, and HTTPS/browser compatibility
+4. **Complete Add-Ons System** - Full documentation system for items without barcodes with 3-photo capture (overall view, close-up, side angle), approval workflow, and comprehensive reporting
+5. **Add-Ons Database Schema** - Created `add_on_items` table with proper indexing and storage bucket setup
+6. **Enhanced Navigation Menu** - Updated "Damage" to "Damage & Add-ons" with role-based access (Supervisor+ create, Super User approve)
+7. **Add-On Creation Interface** - Complete form with brand, item name, quantity, reason, pricing fields, and camera integration
+8. **Super User Add-On Approvals** - Full approval/rejection workflow with reason capture and status tracking
+9. **Add-Ons Reporting Tab** - Fourth tab in Reports page with session filtering, status filtering, and CSV export
+10. **Web Scanning Search Functionality** - Added barcode search to dashboard review screen before approval submission
+11. **Scanner Status Performance Badge** - Added scans/hour calculation and display in real-time status widget
+12. **Complete Damage Reporting System** - Full implementation with camera capture, approval workflow, and session-scoped reporting
+13. **Scanner Status Session Scoping Fix** - Fixed to show scan counts per audit session only (not lifetime totals)
+14. **Three-Photo Progressive Capture** - Guided damage documentation with image compression (250KB per photo)
+15. **Production-Ready Storage** - Supabase Storage integration with optimized image handling for free tier
 
 ✅ **Previous Completed Features (Aug 15, 2025)**:
 1. **Dashboard UX Overhaul** - Streamlined KPIs (4 focused metrics vs 6 cards), modern navigation design

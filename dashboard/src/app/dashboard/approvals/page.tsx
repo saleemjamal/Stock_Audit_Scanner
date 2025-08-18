@@ -26,6 +26,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Tabs,
+  Tab,
 } from '@mui/material'
 import {
   CheckCircle,
@@ -35,10 +37,15 @@ import {
   LocationOn,
   Search,
   Visibility,
+  Gavel,
+  Warning,
+  Add,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
-import { useRouter } from 'next/navigation'
+import DamageApprovalPage from '@/components/damage/DamageApprovalPage'
+import AddOnApprovalPage from '@/components/add-ons/AddOnApprovalPage'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 interface PendingRack {
   id: string
@@ -52,6 +59,11 @@ interface PendingRack {
 
 
 export default function ApprovalsPage() {
+  // Tab and user management
+  const [currentTab, setCurrentTab] = useState(0)
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  
+  // Rack approvals states
   const [pendingRacks, setPendingRacks] = useState<PendingRack[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -70,10 +82,44 @@ export default function ApprovalsPage() {
   
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   useEffect(() => {
+    loadCurrentUser()
     loadPendingApprovals()
-  }, [])
+    
+    // Handle URL tab parameter
+    const tabParam = searchParams.get('tab')
+    if (tabParam) {
+      switch (tabParam) {
+        case 'damage':
+          setCurrentTab(1)
+          break
+        case 'add-ons':
+          setCurrentTab(2)
+          break
+        default:
+          setCurrentTab(0)
+      }
+    }
+  }, [searchParams])
+
+  const loadCurrentUser = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', session.user.email)
+        .single()
+
+      setCurrentUser(userProfile)
+    } catch (error) {
+      console.error('Error loading user:', error)
+    }
+  }
 
   useEffect(() => {
     // Set up real-time subscription only after we know the active session
@@ -303,6 +349,26 @@ export default function ApprovalsPage() {
     }
   }
 
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setCurrentTab(newValue)
+  }
+
+  const getTabsForUser = () => {
+    const tabs = [
+      { label: 'Racks', icon: <Gavel />, value: 0 }
+    ]
+    
+    // Super users see all tabs
+    if (currentUser?.role === 'superuser') {
+      tabs.push(
+        { label: 'Damage', icon: <Warning />, value: 1 },
+        { label: 'Add-ons', icon: <Add />, value: 2 }
+      )
+    }
+    
+    return tabs
+  }
+
   const filteredRacks = pendingRacks.filter(rack =>
     rack.rack_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
     rack.location_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -323,141 +389,199 @@ export default function ApprovalsPage() {
     }
   }
 
+  const renderTabContent = () => {
+    switch (currentTab) {
+      case 0: // Racks tab
+        return (
+          <Box>
+            <Typography variant="body1" color="text.secondary" paragraph>
+              Review and approve rack scans submitted by scanners. Each rack must be individually reviewed.
+            </Typography>
+
+            {/* Search */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <TextField
+                  fullWidth
+                  placeholder="Search by rack number, location, or scanner..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Racks Table */}
+            <Card>
+              <CardContent>
+                {loading ? (
+                  <Box display="flex" justifyContent="center" p={4}>
+                    <CircularProgress />
+                  </Box>
+                ) : (
+                  <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto' }}>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Rack Number</TableCell>
+                          <TableCell>Location</TableCell>
+                          <TableCell>Scanner</TableCell>
+                          <TableCell align="center">Total Scans</TableCell>
+                          <TableCell>Submitted</TableCell>
+                          <TableCell align="center">Actions</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredRacks.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                {searchTerm ? 'No racks match your search' : 'No pending approvals'}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredRacks.map((rack) => (
+                            <TableRow key={rack.id} hover>
+                              <TableCell>
+                                <Typography variant="subtitle2" fontWeight="bold">
+                                  {rack.rack_number}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Box display="flex" alignItems="center" gap={1}>
+                                  <LocationOn fontSize="small" color="action" />
+                                  {rack.location_name}
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Box display="flex" alignItems="center" gap={1}>
+                                  <Person fontSize="small" color="action" />
+                                  {rack.scanner_username}
+                                </Box>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Chip 
+                                  label={rack.total_scans} 
+                                  size="small" 
+                                  color="primary" 
+                                  variant="outlined"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Box display="flex" alignItems="center" gap={1}>
+                                  <Schedule fontSize="small" color="action" />
+                                  {formatTimeAgo(rack.completed_at)}
+                                </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Box display="flex" gap={1} justifyContent="center">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleViewDetails(rack)}
+                                    title="View scan details"
+                                  >
+                                    <Visibility />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    color="success"
+                                    onClick={() => handleRackAction(rack.id, 'approve')}
+                                    disabled={processingAction === rack.id}
+                                    title="Approve rack"
+                                  >
+                                    {processingAction === rack.id ? (
+                                      <CircularProgress size={20} />
+                                    ) : (
+                                      <CheckCircle />
+                                    )}
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleRejectClick(rack)}
+                                    disabled={processingAction === rack.id}
+                                    title="Reject rack"
+                                  >
+                                    <Cancel />
+                                  </IconButton>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+          </Box>
+        )
+      case 1: // Damage tab
+        return <DamageApprovalPage />
+      case 2: // Add-ons tab
+        return <AddOnApprovalPage currentUser={currentUser} />
+      default:
+        return null
+    }
+  }
+
+  if (!currentUser) {
+    return (
+      <DashboardLayout>
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        </Container>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
-          Pending Approvals
+          Approvals
         </Typography>
-      
-      <Typography variant="body1" color="text.secondary" paragraph>
-        Review and approve rack scans submitted by scanners. Each rack must be individually reviewed.
-      </Typography>
-
-      {/* Search */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <TextField
-            fullWidth
-            placeholder="Search by rack number, location, or scanner..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search />
-                </InputAdornment>
-              ),
+        
+        {/* Tabs */}
+        <Card sx={{ mb: 3 }}>
+          <Tabs 
+            value={currentTab} 
+            onChange={handleTabChange}
+            variant="fullWidth"
+            sx={{ 
+              borderBottom: 1, 
+              borderColor: 'divider',
+              '& .MuiTab-root': {
+                minHeight: 60,
+                textTransform: 'none',
+                fontSize: '1rem',
+              }
             }}
-          />
-        </CardContent>
-      </Card>
+          >
+            {getTabsForUser().map((tab) => (
+              <Tab 
+                key={tab.value}
+                label={tab.label}
+                icon={tab.icon}
+                iconPosition="start"
+                value={tab.value}
+              />
+            ))}
+          </Tabs>
+        </Card>
 
-      {/* Racks Table */}
-      <Card>
-        <CardContent>
-          {loading ? (
-            <Box display="flex" justifyContent="center" p={4}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto' }}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Rack Number</TableCell>
-                    <TableCell>Location</TableCell>
-                    <TableCell>Scanner</TableCell>
-                    <TableCell align="center">Total Scans</TableCell>
-                    <TableCell>Submitted</TableCell>
-                    <TableCell align="center">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {filteredRacks.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          {searchTerm ? 'No racks match your search' : 'No pending approvals'}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredRacks.map((rack) => (
-                      <TableRow key={rack.id} hover>
-                        <TableCell>
-                          <Typography variant="subtitle2" fontWeight="bold">
-                            {rack.rack_number}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <LocationOn fontSize="small" color="action" />
-                            {rack.location_name}
-                          </Box>
-                        </TableCell>
-                        <TableCell>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <Person fontSize="small" color="action" />
-                            {rack.scanner_username}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Chip 
-                            label={rack.total_scans} 
-                            size="small" 
-                            color="primary" 
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <Schedule fontSize="small" color="action" />
-                            {formatTimeAgo(rack.completed_at)}
-                          </Box>
-                        </TableCell>
-                        <TableCell>
-                          <Box display="flex" gap={1} justifyContent="center">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleViewDetails(rack)}
-                              title="View scan details"
-                            >
-                              <Visibility />
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              color="success"
-                              onClick={() => handleRackAction(rack.id, 'approve')}
-                              disabled={processingAction === rack.id}
-                              title="Approve rack"
-                            >
-                              {processingAction === rack.id ? (
-                                <CircularProgress size={20} />
-                              ) : (
-                                <CheckCircle />
-                              )}
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleRejectClick(rack)}
-                              disabled={processingAction === rack.id}
-                              title="Reject rack"
-                            >
-                              <Cancel />
-                            </IconButton>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </CardContent>
-      </Card>
+        {/* Tab Content */}
+        {renderTabContent()}
 
 
       {/* Rejection Dialog */}

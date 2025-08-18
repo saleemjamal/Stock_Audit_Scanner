@@ -41,6 +41,9 @@ import {
   Storage,
   Refresh,
   AddCircle,
+  Warning,
+  AssignmentTurnedIn,
+  ReportProblem,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -69,6 +72,15 @@ interface AuditSession {
   notes?: string
 }
 
+interface PendingValidation {
+  racks: number
+  damageReports: number
+  addOnItems: number
+  assignedRacks: number
+  canClose: boolean
+  warnings: string[]
+}
+
 interface UserProfile {
   id: string
   email: string
@@ -86,6 +98,13 @@ export default function AuditSessionsPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [addRacksDialogOpen, setAddRacksDialogOpen] = useState(false)
   const [selectedSession, setSelectedSession] = useState<AuditSession | null>(null)
+  const [closeSessionDialog, setCloseSessionDialog] = useState({
+    open: false,
+    sessionId: '',
+    sessionName: '',
+    validating: false,
+    validation: null as PendingValidation | null
+  })
   
   // Form state
   const [selectedLocation, setSelectedLocation] = useState<number | ''>('')
@@ -351,6 +370,78 @@ export default function AuditSessionsPage() {
     }
   }
 
+  const validateSessionClosure = async (sessionId: string): Promise<PendingValidation> => {
+    try {
+      // Check all pending approval types for this session
+      const [
+        { data: pendingRacks },
+        { data: pendingDamage },
+        { data: pendingAddOns },
+        { data: assignedRacks }
+      ] = await Promise.all([
+        supabase
+          .from('racks')
+          .select('id')
+          .eq('audit_session_id', sessionId)
+          .eq('status', 'ready_for_approval'),
+        supabase
+          .from('damaged_items')
+          .select('id')
+          .eq('audit_session_id', sessionId)
+          .eq('status', 'pending'),
+        supabase
+          .from('add_on_items')
+          .select('id')
+          .eq('audit_session_id', sessionId)
+          .eq('status', 'pending'),
+        supabase
+          .from('racks')
+          .select('id')
+          .eq('audit_session_id', sessionId)
+          .eq('status', 'assigned')
+      ])
+
+      const rackCount = pendingRacks?.length || 0
+      const damageCount = pendingDamage?.length || 0
+      const addOnCount = pendingAddOns?.length || 0
+      const assignedCount = assignedRacks?.length || 0
+
+      const warnings: string[] = []
+      
+      if (rackCount > 0) {
+        warnings.push(`${rackCount} rack${rackCount > 1 ? 's' : ''} pending supervisor approval`)
+      }
+      if (damageCount > 0) {
+        warnings.push(`${damageCount} damage report${damageCount > 1 ? 's' : ''} pending super user approval`)
+      }
+      if (addOnCount > 0) {
+        warnings.push(`${addOnCount} add-on request${addOnCount > 1 ? 's' : ''} pending super user approval`)
+      }
+      if (assignedCount > 0) {
+        warnings.push(`${assignedCount} rack${assignedCount > 1 ? 's are' : ' is'} still assigned to scanners`)
+      }
+
+      return {
+        racks: rackCount,
+        damageReports: damageCount,
+        addOnItems: addOnCount,
+        assignedRacks: assignedCount,
+        canClose: warnings.length === 0,
+        warnings
+      }
+    } catch (error) {
+      console.error('Error validating session closure:', error)
+      return {
+        racks: 0,
+        damageReports: 0,
+        addOnItems: 0,
+        assignedRacks: 0,
+        canClose: false,
+        warnings: ['Unable to validate session status. Please try again.']
+      }
+    }
+  }
+
   const handleAddRacks = async () => {
     if (!selectedSession || additionalRacks < 1) return
 
@@ -413,10 +504,29 @@ export default function AuditSessionsPage() {
     }
   }
 
-  const handleCloseSession = async (sessionId: string) => {
-    if (!confirm('Are you sure you want to close this session? This action cannot be undone.')) {
-      return
-    }
+  const handleCloseSessionClick = async (session: AuditSession) => {
+    // Start validation process
+    setCloseSessionDialog({
+      open: true,
+      sessionId: session.id,
+      sessionName: session.location_name || 'Session',
+      validating: true,
+      validation: null
+    })
+
+    // Perform validation
+    const validation = await validateSessionClosure(session.id)
+    
+    setCloseSessionDialog(prev => ({
+      ...prev,
+      validating: false,
+      validation
+    }))
+  }
+
+  const handleCloseSessionConfirm = async () => {
+    const { sessionId } = closeSessionDialog
+    if (!sessionId) return
 
     setProcessing(true)
     try {
@@ -437,6 +547,8 @@ export default function AuditSessionsPage() {
         severity: 'success' 
       })
       
+      // Close dialog and reload
+      setCloseSessionDialog({ open: false, sessionId: '', sessionName: '', validating: false, validation: null })
       await loadSessions()
     } catch (error: any) {
       console.error('Error closing session:', error)
@@ -448,6 +560,16 @@ export default function AuditSessionsPage() {
     } finally {
       setProcessing(false)
     }
+  }
+
+  const handleCloseSessionCancel = () => {
+    setCloseSessionDialog({ 
+      open: false, 
+      sessionId: '', 
+      sessionName: '', 
+      validating: false, 
+      validation: null 
+    })
   }
 
   const resetForm = () => {
@@ -580,7 +702,7 @@ export default function AuditSessionsPage() {
                       size="small"
                       variant="outlined"
                       color="error"
-                      onClick={() => handleCloseSession(session.id)}
+                      onClick={() => handleCloseSessionClick(session)}
                     >
                       Close Session
                     </Button>
@@ -741,6 +863,181 @@ export default function AuditSessionsPage() {
           >
             {processing ? 'Adding...' : 'Add Racks'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Close Session Validation Dialog */}
+      <Dialog 
+        open={closeSessionDialog.open} 
+        onClose={handleCloseSessionCancel}
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Warning color="warning" />
+            Close Audit Session: {closeSessionDialog.sessionName}
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {closeSessionDialog.validating ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 3 }}>
+              <CircularProgress size={24} />
+              <Typography>Checking for pending approvals...</Typography>
+            </Box>
+          ) : closeSessionDialog.validation ? (
+            <Box sx={{ mt: 2 }}>
+              {closeSessionDialog.validation.canClose ? (
+                <Alert severity="success" sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    ✅ Ready to Close
+                  </Typography>
+                  <Typography variant="body2">
+                    All approvals are complete. This session can be safely closed.
+                  </Typography>
+                </Alert>
+              ) : (
+                <Alert severity="error" sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    ⚠️ Cannot Close Session
+                  </Typography>
+                  <Typography variant="body2">
+                    Please complete all pending approvals before closing this session.
+                  </Typography>
+                </Alert>
+              )}
+
+              <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
+                Current Status:
+              </Typography>
+
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <AssignmentTurnedIn color={closeSessionDialog.validation.racks > 0 ? 'error' : 'success'} />
+                        <Typography variant="subtitle2">
+                          Rack Approvals
+                        </Typography>
+                      </Box>
+                      <Typography variant="h4" color={closeSessionDialog.validation.racks > 0 ? 'error.main' : 'success.main'}>
+                        {closeSessionDialog.validation.racks}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {closeSessionDialog.validation.racks > 0 ? 'Pending approval' : 'All approved'}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} sm={6}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <ReportProblem color={closeSessionDialog.validation.damageReports > 0 ? 'error' : 'success'} />
+                        <Typography variant="subtitle2">
+                          Damage Reports
+                        </Typography>
+                      </Box>
+                      <Typography variant="h4" color={closeSessionDialog.validation.damageReports > 0 ? 'error.main' : 'success.main'}>
+                        {closeSessionDialog.validation.damageReports}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {closeSessionDialog.validation.damageReports > 0 ? 'Pending approval' : 'All approved'}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} sm={6}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <Add color={closeSessionDialog.validation.addOnItems > 0 ? 'error' : 'success'} />
+                        <Typography variant="subtitle2">
+                          Add-on Requests
+                        </Typography>
+                      </Box>
+                      <Typography variant="h4" color={closeSessionDialog.validation.addOnItems > 0 ? 'error.main' : 'success.main'}>
+                        {closeSessionDialog.validation.addOnItems}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {closeSessionDialog.validation.addOnItems > 0 ? 'Pending approval' : 'All approved'}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} sm={6}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <Storage color={closeSessionDialog.validation.assignedRacks > 0 ? 'error' : 'success'} />
+                        <Typography variant="subtitle2">
+                          Active Racks
+                        </Typography>
+                      </Box>
+                      <Typography variant="h4" color={closeSessionDialog.validation.assignedRacks > 0 ? 'error.main' : 'success.main'}>
+                        {closeSessionDialog.validation.assignedRacks}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {closeSessionDialog.validation.assignedRacks > 0 ? 'Still assigned' : 'All available'}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              {closeSessionDialog.validation.warnings.length > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Issues to resolve:
+                  </Typography>
+                  {closeSessionDialog.validation.warnings.map((warning, index) => (
+                    <Alert key={index} severity="warning" sx={{ mb: 1 }}>
+                      {warning}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
+
+              {!closeSessionDialog.validation.canClose && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    💡 <strong>Next Steps:</strong> Visit the{' '}
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={() => {
+                        handleCloseSessionCancel()
+                        router.push('/dashboard/approvals')
+                      }}
+                      sx={{ textDecoration: 'underline', p: 0, minWidth: 'unset' }}
+                    >
+                      Approvals page
+                    </Button>
+                    {' '}to complete pending reviews, then try closing the session again.
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseSessionCancel}>
+            Cancel
+          </Button>
+          {closeSessionDialog.validation?.canClose && (
+            <Button 
+              onClick={handleCloseSessionConfirm}
+              variant="contained"
+              color="error"
+              disabled={processing}
+            >
+              {processing ? 'Closing...' : 'Close Session'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

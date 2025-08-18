@@ -42,6 +42,7 @@ import {
   Person,
   Warning,
   BrokenImage,
+  Add,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -158,6 +159,12 @@ export default function ReportsPage() {
   const [damageReports, setDamageReports] = useState<DamageReport[]>([])
   const [selectedDamageSessionId, setSelectedDamageSessionId] = useState<string>('')
   const [loadingDamageReports, setLoadingDamageReports] = useState<boolean>(false)
+  
+  // State for add-on reports
+  const [addOnReports, setAddOnReports] = useState<any[]>([])
+  const [selectedAddOnSessionId, setSelectedAddOnSessionId] = useState<string>('')
+  const [loadingAddOnReports, setLoadingAddOnReports] = useState<boolean>(false)
+  const [addOnStatusFilter, setAddOnStatusFilter] = useState<string>('all')
   
   const supabase = createClient()
 
@@ -593,7 +600,7 @@ export default function ReportsPage() {
       csvLines.push(`Approved: ${approvedCount}`)
       csvLines.push(`Rejected: ${rejectedCount}`)
       csvLines.push(`Removed from Stock: ${removedCount}`)
-      csvLines.push(`Total Estimated Loss: $${totalLoss.toFixed(2)}`)
+      csvLines.push(`Total Estimated Loss: ₹${totalLoss.toFixed(2)}`)
 
       const csvContent = csvLines.join('\n')
       const filename = `damage-report-${session?.shortname || sessionId}-${new Date().toISOString().split('T')[0]}.csv`
@@ -617,9 +624,89 @@ export default function ReportsPage() {
     }
   }
 
-  // Load sessions when switching to Racks or Damages tab
+  // Export Add-On CSV
+  const exportAddOnCSV = async () => {
+    setExporting(true)
+    try {
+      const session = sessionsForReports.find(s => s.session_id === selectedAddOnSessionId)
+      
+      const filteredAddOns = addOnReports.filter(addOn => 
+        addOnStatusFilter === 'all' || addOn.status === addOnStatusFilter
+      )
+
+      // Create CSV content
+      const csvLines = []
+      
+      // Header info
+      csvLines.push(`Add-On Report`)
+      csvLines.push(`Session: ${session?.shortname} - ${session?.location_name}`)
+      csvLines.push(`Generated: ${new Date().toLocaleString()}`)
+      csvLines.push(`Status Filter: ${addOnStatusFilter === 'all' ? 'All Statuses' : addOnStatusFilter.charAt(0).toUpperCase() + addOnStatusFilter.slice(1)}`)
+      csvLines.push(`Total Items: ${filteredAddOns.length}`)
+      csvLines.push('')
+      
+      // Summary stats
+      const pendingCount = filteredAddOns.filter(a => a.status === 'pending').length
+      const approvedCount = filteredAddOns.filter(a => a.status === 'approved').length  
+      const rejectedCount = filteredAddOns.filter(a => a.status === 'rejected').length
+      const totalCostValue = filteredAddOns.reduce((sum, a) => sum + (a.cost_price || 0), 0)
+      const totalSellingValue = filteredAddOns.reduce((sum, a) => sum + (a.selling_price || 0), 0)
+
+      csvLines.push(`SUMMARY:`)
+      csvLines.push(`Pending: ${pendingCount}`)
+      csvLines.push(`Approved: ${approvedCount}`)
+      csvLines.push(`Rejected: ${rejectedCount}`)
+      csvLines.push(`Total Cost Value: ₹${totalCostValue.toFixed(2)}`)
+      csvLines.push(`Total Selling Value: ₹${totalSellingValue.toFixed(2)}`)
+      csvLines.push('')
+
+      // Column headers
+      csvLines.push('Brand,Item Name,Quantity,Cost Price,Selling Price,Reason,Reporter,Status,Reported Date,Reviewed By,Reviewed Date,Rejection Reason')
+      
+      // Data rows
+      filteredAddOns.forEach(addOn => {
+        const row = [
+          addOn.brand || '',
+          addOn.item_name || '',
+          addOn.quantity || 0,
+          addOn.cost_price ? `₹${addOn.cost_price.toFixed(2)}` : '',
+          addOn.selling_price ? `₹${addOn.selling_price.toFixed(2)}` : '',
+          `"${(addOn.reason || '').replace(/"/g, '""')}"`, // Escape quotes
+          addOn.reported_by?.full_name || addOn.reported_by?.username || '',
+          addOn.status || '',
+          new Date(addOn.reported_at).toLocaleDateString(),
+          addOn.reviewed_by ? (addOn.reviewed_by.full_name || addOn.reviewed_by.username) : '',
+          addOn.reviewed_at ? new Date(addOn.reviewed_at).toLocaleDateString() : '',
+          addOn.rejection_reason ? `"${addOn.rejection_reason.replace(/"/g, '""')}"` : ''
+        ]
+        csvLines.push(row.join(','))
+      })
+
+      const csvContent = csvLines.join('\n')
+      const filename = `add-on-report-${session?.shortname || selectedAddOnSessionId}-${new Date().toISOString().split('T')[0]}.csv`
+
+      // Download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', filename)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+    } catch (error) {
+      console.error('Error exporting add-on CSV:', error)
+      alert('Failed to export add-on report')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // Load sessions when switching to Racks, Damages, or Add-Ons tab
   useEffect(() => {
-    if (activeTab === 1 || activeTab === 2) {
+    if (activeTab === 1 || activeTab === 2 || activeTab === 3) {
       loadSessionsForReports()
     }
   }, [activeTab])
@@ -637,6 +724,37 @@ export default function ReportsPage() {
       loadDamageReports(selectedDamageSessionId)
     }
   }, [selectedDamageSessionId])
+
+  // Load add-on reports when session changes
+  useEffect(() => {
+    if (selectedAddOnSessionId) {
+      loadAddOnReports(selectedAddOnSessionId)
+    }
+  }, [selectedAddOnSessionId])
+
+
+  // Load add-on reports function
+  const loadAddOnReports = async (sessionId: string) => {
+    setLoadingAddOnReports(true)
+    try {
+      const { data, error } = await supabase
+        .from('add_on_items')
+        .select(`
+          *,
+          reported_by:users!add_on_items_reported_by_fkey(username, full_name),
+          reviewed_by:users!add_on_items_reviewed_by_fkey(username, full_name)
+        `)
+        .eq('audit_session_id', sessionId)
+        .order('reported_at', { ascending: false })
+
+      if (error) throw error
+      setAddOnReports(data || [])
+    } catch (error) {
+      console.error('Error loading add-on reports:', error)
+    } finally {
+      setLoadingAddOnReports(false)
+    }
+  }
 
   // Get status color for rack chips
   const getRackStatusColor = (status: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
@@ -733,6 +851,11 @@ export default function ReportsPage() {
             <Tab 
               label="Damages" 
               icon={<BrokenImage />} 
+              iconPosition="start"
+            />
+            <Tab 
+              label="Add-Ons" 
+              icon={<Add />} 
               iconPosition="start"
             />
           </Tabs>
@@ -1332,6 +1455,182 @@ export default function ReportsPage() {
                                 </TableCell>
                               </TableRow>
                             ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Tab Panel 4: Add-Ons */}
+        {activeTab === 3 && (
+          <>
+            {/* Session Selection */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Add />
+                  Add-On Reports
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Select an audit session to view and export add-on requests with status filtering.
+                </Typography>
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  <FormControl sx={{ minWidth: 300 }}>
+                    <InputLabel>Select Audit Session</InputLabel>
+                    <Select
+                      value={selectedAddOnSessionId}
+                      onChange={(e) => setSelectedAddOnSessionId(e.target.value)}
+                      label="Select Audit Session"
+                    >
+                      {sessionsForReports.map((session) => (
+                        <MenuItem key={session.session_id} value={session.session_id}>
+                          <Box>
+                            <Typography variant="body2" fontWeight="bold">
+                              {session.shortname} - {session.location_name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {session.status === 'active' ? '🔴 Active' : '✅ Completed'} • 
+                              {session.total_racks} racks • {session.total_scans} scans
+                            </Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <FormControl sx={{ minWidth: 120 }}>
+                    <InputLabel>Status Filter</InputLabel>
+                    <Select
+                      value={addOnStatusFilter}
+                      onChange={(e) => setAddOnStatusFilter(e.target.value)}
+                      label="Status Filter"
+                    >
+                      <MenuItem value="all">All</MenuItem>
+                      <MenuItem value="pending">Pending</MenuItem>
+                      <MenuItem value="approved">Approved</MenuItem>
+                      <MenuItem value="rejected">Rejected</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
+              </CardContent>
+            </Card>
+
+            {/* Add-On Reports Table */}
+            {selectedAddOnSessionId && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Add-On Requests ({addOnReports.filter(addOn => 
+                      addOnStatusFilter === 'all' || addOn.status === addOnStatusFilter
+                    ).length} of {addOnReports.length})
+                  </Typography>
+                  
+                  {/* Export Button */}
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                    <Button
+                      variant="contained"
+                      startIcon={<FileDownload />}
+                      onClick={() => exportAddOnCSV()}
+                      disabled={loadingAddOnReports || addOnReports.length === 0}
+                    >
+                      Export CSV
+                    </Button>
+                  </Box>
+
+                  {loadingAddOnReports ? (
+                    <Box display="flex" justifyContent="center" p={4}>
+                      <CircularProgress />
+                    </Box>
+                  ) : (
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Brand</TableCell>
+                            <TableCell>Item Name</TableCell>
+                            <TableCell>Quantity</TableCell>
+                            <TableCell>Pricing</TableCell>
+                            <TableCell>Reporter</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell>Reported At</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {addOnReports.filter(addOn => 
+                            addOnStatusFilter === 'all' || addOn.status === addOnStatusFilter
+                          ).length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={7} align="center">
+                                <Typography color="text.secondary" sx={{ py: 4 }}>
+                                  No add-on requests found
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            addOnReports
+                              .filter(addOn => addOnStatusFilter === 'all' || addOn.status === addOnStatusFilter)
+                              .map((addOn) => (
+                                <TableRow key={addOn.id} hover>
+                                  <TableCell>
+                                    <Typography variant="body2" fontWeight="medium">
+                                      {addOn.brand}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {addOn.item_name}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">
+                                      {addOn.reason}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip label={addOn.quantity} size="small" />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      CP: {addOn.cost_price ? `₹${addOn.cost_price.toFixed(2)}` : 'N/A'}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      SP: {addOn.selling_price ? `₹${addOn.selling_price.toFixed(2)}` : 'N/A'}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {addOn.reported_by?.full_name || addOn.reported_by?.username}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={addOn.status.toUpperCase()}
+                                      size="small"
+                                      color={
+                                        addOn.status === 'pending' ? 'warning' :
+                                        addOn.status === 'approved' ? 'success' : 'error'
+                                      }
+                                    />
+                                    {addOn.status === 'rejected' && addOn.rejection_reason && (
+                                      <Typography variant="caption" display="block" color="error">
+                                        {addOn.rejection_reason}
+                                      </Typography>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {new Date(addOn.reported_at).toLocaleDateString()}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {new Date(addOn.reported_at).toLocaleTimeString()}
+                                    </Typography>
+                                  </TableCell>
+                                </TableRow>
+                              ))
                           )}
                         </TableBody>
                       </Table>

@@ -23,15 +23,15 @@ interface DamageCameraCaptureProps {
 const PHOTO_INSTRUCTIONS = [
     {
         title: "Overall View",
-        description: "Position the damaged item in the center of the frame. Take a wide shot showing the entire item."
+        description: "Position the item in the center of the frame. Take a wide shot showing the entire item."
     },
     {
-        title: "Damage Close-up", 
-        description: "Move closer and focus on the damaged area. Ensure the damage is clearly visible."
+        title: "Close-up Details", 
+        description: "Move closer and focus on important details. Ensure key features are clearly visible."
     },
     {
         title: "Side Angle",
-        description: "Take a side view to show the depth and extent of the damage."
+        description: "Take a side view to show the depth and additional details of the item."
     }
 ];
 

@@ -33,6 +33,7 @@ interface ScannerInfo {
   approved_racks: number
   total_reviewed_racks: number
   time_since_last_scan: string
+  scans_per_hour: number
 }
 
 export default function ScannerStatus() {
@@ -146,6 +147,27 @@ export default function ScannerStatus() {
           ? formatTimeSince(new Date(latestScan.created_at))
           : 'No activity today'
 
+        // Calculate scans per hour for active session
+        let scansPerHour = 0
+        if (sessionScans && sessionScans > 0 && latestScan?.created_at) {
+          // Get first scan for this session
+          const { data: firstScan } = await supabase
+            .from('scans')
+            .select('created_at')
+            .eq('scanner_id', user.id)
+            .eq('audit_session_id', activeSession.id)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single()
+
+          if (firstScan) {
+            const firstScanTime = new Date(firstScan.created_at)
+            const lastScanTime = new Date(latestScan.created_at)
+            const hoursWorked = (lastScanTime.getTime() - firstScanTime.getTime()) / (1000 * 60 * 60)
+            scansPerHour = hoursWorked > 0 ? Math.round(sessionScans / hoursWorked) : 0
+          }
+        }
+
         scannerData.push({
           id: user.id,
           username: user.username,
@@ -156,6 +178,7 @@ export default function ScannerStatus() {
           approved_racks: approvedRacks,
           total_reviewed_racks: totalReviewedRacks,
           time_since_last_scan: timeSince,
+          scans_per_hour: scansPerHour,
         })
       }
 
@@ -273,6 +296,19 @@ export default function ScannerStatus() {
                         variant="outlined"
                         icon={<CheckCircle sx={{ fontSize: '14px !important' }} />}
                       />
+                      {scanner.scans_per_hour > 0 && (
+                        <Chip
+                          label={`${scanner.scans_per_hour}/hr`}
+                          size="small"
+                          variant="outlined"
+                          color="info"
+                          sx={{ 
+                            bgcolor: 'info.light',
+                            color: 'info.contrastText',
+                            fontWeight: 'bold'
+                          }}
+                        />
+                      )}
                     </Box>
                   }
                 />

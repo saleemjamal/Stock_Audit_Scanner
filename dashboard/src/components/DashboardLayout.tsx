@@ -45,6 +45,7 @@ import {
   HelpOutline,
   Warning,
   Gavel,
+  Add,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -195,10 +196,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       items.push({ text: 'Report Damage', icon: <Warning />, href: '/dashboard/damage' })
     }
     
-    // Only super users can approve damage
-    if (currentUser?.role === 'superuser') {
-      items.push({ text: 'Approvals', icon: <Gavel />, href: '/dashboard/damage-approvals' })
+    // Supervisors and super users can create add-ons
+    if (currentUser && ['supervisor', 'superuser'].includes(currentUser.role)) {
+      items.push({ text: 'Add-ons', icon: <Add />, href: '/dashboard/add-ons' })
     }
+    
+    // Note: All approvals are now consolidated in the main Approvals page with tabs
     
     return items
   }
@@ -297,7 +300,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     <Warning />
                   </ListItemIcon>
                   <ListItemText 
-                    primary="Damage"
+                    primary="Damage & Add-ons"
                     primaryTypographyProps={{
                       fontSize: '0.875rem',
                       fontWeight: 'medium'
@@ -598,17 +601,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography variant="subtitle1" fontWeight="medium">
-                  How to Start Scanning?
+                  🚀 Getting Started with Scanning
                 </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Typography variant="body2" color="text.secondary">
+                  <strong>Mobile App & Web Dashboard:</strong><br/>
                   1. Navigate to the <strong>Scanning</strong> section from the sidebar<br/>
                   2. Select your <strong>Location</strong> from the dropdown<br/>
                   3. Choose an <strong>Available Rack</strong> to start scanning<br/>
-                  4. Use the barcode input field or connect a USB scanner<br/>
-                  5. Scan items one by one - each scan is automatically saved<br/>
-                  6. Click <strong>"Complete Rack"</strong> when finished
+                  4. Use barcode input field, USB scanner, or scan rack barcode (DDMM-###)<br/>
+                  5. Scan items one by one - each scan is saved instantly<br/>
+                  6. Review scans and delete mistakes before submitting<br/>
+                  7. Click <strong>"Complete Rack"</strong> when finished<br/><br/>
+                  <em>💡 Tip: Web scanning supports USB scanners for faster input</em>
                 </Typography>
               </AccordionDetails>
             </Accordion>
@@ -616,17 +622,28 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography variant="subtitle1" fontWeight="medium">
-                  Rack Selection
+                  📋 Unified Approvals System
                 </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Typography variant="body2" color="text.secondary">
-                  • <strong>Available</strong>: Ready for scanning<br/>
-                  • <strong>Assigned</strong>: Currently being worked on<br/>
-                  • <strong>Ready for Approval</strong>: Completed, awaiting supervisor review<br/>
-                  • <strong>Rejected</strong>: Needs rework (only original scanner can re-select)<br/>
-                  • <strong>Approved</strong>: Completed and approved<br/><br/>
-                  <em>Tip: Rejected racks show in red with the reason for rejection</em>
+                  <strong>Role-Based Access:</strong><br/>
+                  • <strong>Supervisors</strong>: See Racks tab only<br/>
+                  • <strong>Super Users</strong>: See all tabs (Racks, Damage, Add-ons)<br/><br/>
+                  
+                  <strong>Racks Tab:</strong><br/>
+                  1. Review racks in "Ready for Approval" status<br/>
+                  2. Click rack number to see detailed scan list<br/>
+                  3. Click <strong>✓ Approve</strong> or <strong>✗ Reject</strong><br/>
+                  4. Rejected racks require detailed reason<br/><br/>
+                  
+                  <strong>Damage Tab (Super Users Only):</strong><br/>
+                  • Review damaged item reports with 3 photos<br/>
+                  • Approve for stock removal or reject with reason<br/><br/>
+                  
+                  <strong>Add-ons Tab (Super Users Only):</strong><br/>
+                  • Review new product documentation requests<br/>
+                  • Approve for manual goods inward process
                 </Typography>
               </AccordionDetails>
             </Accordion>
@@ -634,18 +651,24 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography variant="subtitle1" fontWeight="medium">
-                  Approval Process
+                  📦 Add-Ons System (Supervisors+)
                 </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>For Supervisors/Superusers:</strong><br/>
-                  1. Go to <strong>Approvals</strong> section<br/>
-                  2. Review racks in "Ready for Approval" status<br/>
-                  3. Click on a rack to see detailed scan list<br/>
-                  4. Click <strong>✓ Approve</strong> to accept the rack<br/>
-                  5. View approved racks in the dashboard<br/><br/>
-                  <em>Approved racks are final and cannot be modified</em>
+                  <strong>Creating Add-On Requests:</strong><br/>
+                  1. Go to <strong>Damage & Add-ons → Add-ons</strong><br/>
+                  2. Fill required fields: Brand*, Item Name*, Quantity*, Reason*<br/>
+                  3. Add optional pricing: Cost Price, Selling Price (₹)<br/>
+                  4. Take <strong>3 photos</strong>: Overall view, close-up details, side angle<br/>
+                  5. Submit for super user approval<br/><br/>
+                  
+                  <strong>When to Use Add-ons:</strong><br/>
+                  • Items found at location without barcodes<br/>
+                  • New products not in the system<br/>
+                  • Items needing manual goods inward process<br/><br/>
+                  
+                  <em>💡 Tip: All 3 photos are required before submission</em>
                 </Typography>
               </AccordionDetails>
             </Accordion>
@@ -653,20 +676,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography variant="subtitle1" fontWeight="medium">
-                  Rejection Workflow
+                  🔧 Damage Reporting System
                 </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Rejecting a Rack:</strong><br/>
-                  1. In Approvals, click <strong>✗ Reject</strong> on a rack<br/>
-                  2. Enter a detailed reason for rejection<br/>
-                  3. Click "Reject Rack" to confirm<br/><br/>
-                  <strong>Reworking Rejected Racks:</strong><br/>
-                  • Only the original scanner can rework rejected racks<br/>
-                  • Rejected racks appear with red styling and reason<br/>
-                  • Original scanner can add/remove scans and re-submit<br/>
-                  • Other scanners will see "assigned to [scanner name]" message
+                  <strong>Reporting Damaged Items:</strong><br/>
+                  1. Go to <strong>Damage & Add-ons → Report Damage</strong><br/>
+                  2. Scan or enter barcode of damaged item<br/>
+                  3. Select damage severity: Minor, Moderate, Severe<br/>
+                  4. Describe the damage in detail<br/>
+                  5. Take <strong>3 photos</strong>: Overall view, close-up details, side angle<br/>
+                  6. Estimate loss value (optional)<br/>
+                  7. Submit for super user approval<br/><br/>
+                  
+                  <strong>Camera Requirements:</strong><br/>
+                  • Requires HTTPS connection or localhost<br/>
+                  • Each photo compressed to 250KB automatically<br/>
+                  • Progressive capture guides you through each angle<br/><br/>
+                  
+                  <em>📸 Camera works on Chrome, Edge, Firefox</em>
                 </Typography>
               </AccordionDetails>
             </Accordion>
@@ -674,18 +703,92 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography variant="subtitle1" fontWeight="medium">
-                  Audit Session Management
+                  🎯 Rack Management & Status
                 </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>For Superusers:</strong><br/>
+                  <strong>Rack Statuses:</strong><br/>
+                  • <strong>Available</strong>: Ready for scanning (green)<br/>
+                  • <strong>Assigned</strong>: Currently being worked on (blue)<br/>
+                  • <strong>Ready for Approval</strong>: Completed, awaiting review (orange)<br/>
+                  • <strong>Rejected</strong>: Needs rework with reason (red)<br/>
+                  • <strong>Approved</strong>: Completed and approved (green)<br/><br/>
+                  
+                  <strong>Rack Barcode Scanning:</strong><br/>
+                  • Format: DDMM-### (e.g., 1808-001 for Aug 18, rack 1)<br/>
+                  • Scan rack barcode to auto-select and start scanning<br/>
+                  • Works on both mobile and web interfaces<br/><br/>
+                  
+                  <strong>Rejection Workflow:</strong><br/>
+                  • Only original scanner can rework rejected racks<br/>
+                  • Rejected racks show reason and return to available list<br/>
+                  • Scanner can add/remove scans and re-submit
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Typography variant="subtitle1" fontWeight="medium">
+                  📊 Comprehensive Reporting System
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Four Report Types:</strong><br/>
+                  
+                  <strong>1. Scans Tab:</strong><br/>
+                  • Session progress and completion rates<br/>
+                  • Individual rack CSV exports with full scan lists<br/>
+                  • Include/exclude active racks option<br/><br/>
+                  
+                  <strong>2. Racks Tab:</strong><br/>
+                  • Detailed rack analysis with scanner assignments<br/>
+                  • Individual rack reports for physical verification<br/>
+                  • Status filtering and progress tracking<br/><br/>
+                  
+                  <strong>3. Damage Tab:</strong><br/>
+                  • Damage reports with status filtering<br/>
+                  • Summary statistics and estimated losses<br/>
+                  • Photo counts and approval status<br/><br/>
+                  
+                  <strong>4. Add-ons Tab:</strong><br/>
+                  • Add-on requests with cost/selling price totals<br/>
+                  • Status filtering (Pending, Approved, Rejected)<br/>
+                  • Complete product documentation export<br/><br/>
+                  
+                  <em>💾 All reports export as CSV with full data</em>
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Typography variant="subtitle1" fontWeight="medium">
+                  🛠 Admin Features (Super Users)
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Audit Session Management:</strong><br/>
                   1. Go to <strong>Admin → Audit Sessions</strong><br/>
-                  2. Click "Create New Session" to start an audit<br/>
-                  3. Select location and set total rack count<br/>
-                  4. Add more racks using "Add Racks" if needed<br/>
-                  5. Close session when audit is complete<br/><br/>
-                  <em>Only one active session allowed at a time per location</em>
+                  2. Create new sessions with location and rack count<br/>
+                  3. Add more racks during active sessions<br/>
+                  4. Close sessions when audit complete<br/><br/>
+                  
+                  <strong>User Management:</strong><br/>
+                  • Add users with Google email addresses only<br/>
+                  • Assign roles: Scanner, Supervisor, Super User<br/>
+                  • Set location access permissions<br/>
+                  • Force delete users with test data cleanup<br/><br/>
+                  
+                  <strong>Location Management:</strong><br/>
+                  • Create and manage store locations<br/>
+                  • Enable/disable locations<br/>
+                  • Assign users to specific locations<br/><br/>
+                  
+                  <em>🔒 Only super users have full admin access</em>
                 </Typography>
               </AccordionDetails>
             </Accordion>
@@ -693,35 +796,63 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography variant="subtitle1" fontWeight="medium">
-                  Reporting & Analytics
+                  🎮 Dashboard KPIs & Performance
                 </Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Available Reports:</strong><br/>
-                  • <strong>Session Progress</strong>: Overall completion status<br/>
-                  • <strong>Scanner Performance</strong>: Individual productivity metrics<br/>
-                  • <strong>Quality Reports</strong>: Approval vs rejection rates<br/>
-                  • <strong>Detailed Scan Lists</strong>: Item-level data export<br/><br/>
-                  Access reports from the <strong>Reports</strong> section in the sidebar
-                </Typography>
-              </AccordionDetails>
-            </Accordion>
-
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Typography variant="subtitle1" fontWeight="medium">
-                  Understanding KPIs
-                </Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Dashboard KPIs Explained:</strong><br/>
+                  <strong>Real-Time KPIs:</strong><br/>
                   • <strong>Session Progress</strong>: Completed racks vs total racks<br/>
                   • <strong>Pending Approvals</strong>: Racks awaiting supervisor review<br/>
                   • <strong>Active Scanners</strong>: Users who scanned in last 2 hours<br/>
-                  • <strong>Quality Rate</strong>: Percentage of racks approved vs rejected<br/><br/>
-                  <em>Progress bars show performance relative to targets</em>
+                  • <strong>Quality Rate</strong>: Approval vs rejection percentage<br/><br/>
+                  
+                  <strong>Scanner Status Widget:</strong><br/>
+                  • Real-time scan counts per session (not lifetime)<br/>
+                  • Scans per hour performance calculation<br/>
+                  • Live updates during scanning activities<br/><br/>
+                  
+                  <strong>Rack Map View:</strong><br/>
+                  • Visual rack status with real scanner names<br/>
+                  • Actual scan counts (no placeholder data)<br/>
+                  • Color-coded status indicators<br/><br/>
+                  
+                  <em>📈 All metrics are session-scoped for accurate reporting</em>
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Typography variant="subtitle1" fontWeight="medium">
+                  🚨 Troubleshooting & Tips
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Camera Issues:</strong><br/>
+                  • Ensure HTTPS connection (not HTTP)<br/>
+                  • Allow camera permissions in browser<br/>
+                  • Close other apps using the camera<br/>
+                  • Supported browsers: Chrome, Edge, Firefox<br/><br/>
+                  
+                  <strong>USB Scanner Setup:</strong><br/>
+                  • Configure scanner to send barcode only (no Enter key)<br/>
+                  • For Android: Enable USB OTG in device settings<br/>
+                  • Set app battery to "Unrestricted" for consistent power<br/><br/>
+                  
+                  <strong>Performance Tips:</strong><br/>
+                  • Scan queue processes every 15 seconds automatically<br/>
+                  • Queue status badge shows sync progress<br/>
+                  • Use barcode search in review screens to find specific items<br/>
+                  • Single rack focus prevents confusion during scanning<br/><br/>
+                  
+                  <strong>Role Access:</strong><br/>
+                  • Scanners: Mobile app + limited web dashboard scanning<br/>
+                  • Supervisors: All scanner features + rack approvals + damage/add-ons creation<br/>
+                  • Super Users: Full system access + damage/add-on approvals + admin features<br/><br/>
+                  
+                  <em>💡 Contact system admin if authentication or permissions issues persist</em>
                 </Typography>
               </AccordionDetails>
             </Accordion>

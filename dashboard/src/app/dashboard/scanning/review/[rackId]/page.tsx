@@ -29,6 +29,8 @@ import {
   TableCell,
   TableContainer,
   TableRow,
+  TextField,
+  InputAdornment,
 } from '@mui/material'
 import {
   ArrowBack,
@@ -39,6 +41,7 @@ import {
   QrCode,
   Schedule,
   LocationOn,
+  Search,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
@@ -76,6 +79,8 @@ export default function ReviewScansPage() {
   const [rack, setRack] = useState<Rack | null>(null)
   const [location, setLocation] = useState<Location | null>(null)
   const [scans, setScans] = useState<Scan[]>([])
+  const [filteredScans, setFilteredScans] = useState<Scan[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<Set<string>>(new Set())
   const [submitting, setSubmitting] = useState(false)
@@ -93,6 +98,16 @@ export default function ReviewScansPage() {
   useEffect(() => {
     loadData()
   }, [rackId])
+
+  // Filter scans based on search query
+  useEffect(() => {
+    const filtered = searchQuery.trim() === ''
+      ? scans
+      : scans.filter(scan => 
+          scan.barcode.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+    setFilteredScans(filtered)
+  }, [scans, searchQuery])
 
   const loadData = async () => {
     try {
@@ -334,7 +349,7 @@ export default function ReviewScansPage() {
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                   <Typography variant="h6">
-                    Scanned Items
+                    Scanned Items ({filteredScans.length} of {scans.length})
                   </Typography>
                   <Button
                     startIcon={<Refresh />}
@@ -345,16 +360,39 @@ export default function ReviewScansPage() {
                   </Button>
                 </Box>
 
-                {scans.length === 0 ? (
+                {/* Search Bar */}
+                <Box sx={{ mb: 3 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder="Search by barcode..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Search />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  {searchQuery && (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                      Showing {filteredScans.length} of {scans.length} scans
+                    </Typography>
+                  )}
+                </Box>
+
+                {filteredScans.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: 'center', bgcolor: 'grey.50' }}>
                     <QrCode sx={{ fontSize: 48, color: 'grey.400', mb: 2 }} />
                     <Typography color="text.secondary">
-                      No scans yet
+                      {searchQuery ? `No scans matching "${searchQuery}"` : 'No scans yet'}
                     </Typography>
                   </Paper>
                 ) : (
                   <List>
-                    {scans.map((scan, index) => (
+                    {filteredScans.map((scan, index) => (
                       <Box key={scan.id}>
                         <ListItem
                           sx={{ 
@@ -394,7 +432,7 @@ export default function ReviewScansPage() {
                             </IconButton>
                           </ListItemSecondaryAction>
                         </ListItem>
-                        {index < scans.length - 1 && <Divider />}
+                        {index < filteredScans.length - 1 && <Divider />}
                       </Box>
                     ))}
                   </List>
