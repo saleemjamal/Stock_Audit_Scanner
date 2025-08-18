@@ -34,21 +34,23 @@ interface PersonalStats {
 interface PersonalStatsBarProps {
   userId: string
   userName: string
+  sessionId?: string
 }
 
-export default function PersonalStatsBar({ userId, userName }: PersonalStatsBarProps) {
+export default function PersonalStatsBar({ userId, userName, sessionId }: PersonalStatsBarProps) {
   const [stats, setStats] = useState<PersonalStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   
   const supabase = createClient()
 
   useEffect(() => {
-    loadStats()
+    loadActiveSessionAndStats()
     
     // Refresh stats every 30 seconds
-    const interval = setInterval(loadStats, 30000)
+    const interval = setInterval(loadActiveSessionAndStats, 30000)
     
     // Real-time updates via Supabase subscription
     const subscription = supabase
@@ -59,7 +61,7 @@ export default function PersonalStatsBar({ userId, userName }: PersonalStatsBarP
         table: 'scans',
         filter: `scanner_id=eq.${userId}`
       }, () => {
-        loadStats() // Refresh on new scan
+        loadActiveSessionAndStats() // Refresh on new scan
       })
       .subscribe()
     
@@ -67,22 +69,77 @@ export default function PersonalStatsBar({ userId, userName }: PersonalStatsBarP
       clearInterval(interval)
       subscription.unsubscribe()
     }
-  }, [userId])
+  }, [userId, sessionId])
 
-  const loadStats = async () => {
+  const loadActiveSessionAndStats = async () => {
     try {
-      const { data, error } = await supabase
-        .from('user_personal_stats')
-        .select('*')
-        .eq('scanner_id', userId)
-        .single()
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error loading personal stats:', error)
+      // Get active session if not provided
+      let currentSessionId = sessionId
+      if (!currentSessionId) {
+        const { data: activeSession } = await supabase
+          .from('audit_sessions')
+          .select('id')
+          .eq('status', 'active')
+          .single()
+        
+        currentSessionId = activeSession?.id || null
+      }
+      
+      setActiveSessionId(currentSessionId || null)
+      
+      if (!currentSessionId) {
+        setStats(null)
+        setLoading(false)
         return
       }
 
-      setStats(data || null)
+      // Get stats for this user in the current session only
+      const { data: scans } = await supabase
+        .from('scans')
+        .select('id, created_at')
+        .eq('scanner_id', userId)
+        .eq('audit_session_id', currentSessionId)
+      
+      const { data: racks } = await supabase
+        .from('racks')
+        .select('id, status')
+        .eq('scanner_id', userId)
+        .eq('audit_session_id', currentSessionId)
+
+      // Calculate stats
+      const now = new Date()
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
+      
+      const todayScans = scans?.filter(s => new Date(s.created_at) >= todayStart).length || 0
+      const lastHourScans = scans?.filter(s => new Date(s.created_at) >= oneHourAgo).length || 0
+      const lastScanAt = scans && scans.length > 0 
+        ? scans.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0].created_at
+        : null
+      
+      const racksWorked = racks?.length || 0
+      const racksApproved = racks?.filter(r => r.status === 'approved').length || 0
+      const racksPending = racks?.filter(r => r.status === 'ready_for_approval').length || 0
+      const racksRejected = racks?.filter(r => r.status === 'rejected').length || 0
+      
+      const completedRacks = racksApproved + racksRejected
+      const accuracyRate = completedRacks > 0 
+        ? Math.round((racksApproved / completedRacks) * 100)
+        : 0
+
+      setStats({
+        scanner_id: userId,
+        total_scans: scans?.length || 0,
+        today_scans: todayScans,
+        last_hour_scans: lastHourScans,
+        racks_worked: racksWorked,
+        racks_approved: racksApproved,
+        racks_pending: racksPending,
+        racks_rejected: racksRejected,
+        accuracy_rate: accuracyRate,
+        last_scan_at: lastScanAt,
+        audit_session_id: currentSessionId
+      })
     } catch (error) {
       console.error('Error loading personal stats:', error)
     } finally {

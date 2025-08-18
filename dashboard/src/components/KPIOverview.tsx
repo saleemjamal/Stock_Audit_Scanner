@@ -10,6 +10,7 @@ import {
   Chip,
   LinearProgress,
   CircularProgress,
+  Button,
 } from '@mui/material'
 import {
   TrendingUp,
@@ -18,8 +19,10 @@ import {
   Assignment,
   Timer,
   People,
+  Print,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
+import RackLabelPrinter from './RackLabelPrinter'
 
 interface KPIStats {
   // Core metrics
@@ -39,6 +42,13 @@ interface KPIStats {
   pendingRacks: number
 }
 
+interface SessionInfo {
+  id: string
+  shortname: string
+  locationName: string
+  startedAt: string
+}
+
 export default function KPIOverview() {
   const [stats, setStats] = useState<KPIStats>({
     accuracyRate: 0,
@@ -53,6 +63,8 @@ export default function KPIOverview() {
     pendingRacks: 0,
   })
   const [loading, setLoading] = useState(true)
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
+  const [showLabelPrinter, setShowLabelPrinter] = useState(false)
 
   useEffect(() => {
     loadKPIStats()
@@ -65,7 +77,12 @@ export default function KPIOverview() {
       // Get the single active session
       const { data: activeSession } = await supabase
         .from('audit_sessions')
-        .select('id')
+        .select(`
+          id, 
+          shortname,
+          started_at,
+          location_id
+        `)
         .eq('status', 'active')
         .single()
 
@@ -83,9 +100,32 @@ export default function KPIOverview() {
           rejectedRacks: 0,
           pendingRacks: 0,
         })
+        setSessionInfo(null)
         setLoading(false)
         return
       }
+
+      // Get location name separately to avoid TypeScript issues
+      let locationName = 'Unknown Location'
+      if (activeSession.location_id) {
+        const { data: location } = await supabase
+          .from('locations')
+          .select('name')
+          .eq('id', activeSession.location_id)
+          .single()
+        
+        if (location) {
+          locationName = location.name
+        }
+      }
+
+      // Store active session info
+      setSessionInfo({
+        id: activeSession.id,
+        shortname: activeSession.shortname || 'Audit',
+        locationName: locationName,
+        startedAt: activeSession.started_at
+      })
 
       // Get rack statistics from the single active session
       const { data: racks } = await supabase
@@ -168,6 +208,26 @@ export default function KPIOverview() {
     }
   }
 
+  const formatStartTime = (startedAt: string): string => {
+    const startDate = new Date(startedAt)
+    const now = new Date()
+    const diffMs = now.getTime() - startDate.getTime()
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+    const diffDays = Math.floor(diffHours / 24)
+    
+    if (diffHours < 1) {
+      return 'Started less than an hour ago'
+    } else if (diffHours === 1) {
+      return 'Started 1 hour ago'
+    } else if (diffHours < 24) {
+      return `Started ${diffHours} hours ago`
+    } else if (diffDays === 1) {
+      return 'Started yesterday'
+    } else {
+      return `Started ${diffDays} days ago`
+    }
+  }
+
   if (loading) {
     return (
       <Card>
@@ -218,11 +278,40 @@ export default function KPIOverview() {
   ]
 
   return (
-    <Card>
-      <CardContent sx={{ py: 2 }}>
-        <Grid container spacing={3} alignItems="center">
-          {streamlinedKPIs.map((kpi, index) => (
-            <Grid item xs={6} md={3} key={index}>
+    <>
+      <Card>
+        <CardContent sx={{ py: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Box>
+              {sessionInfo ? (
+                <>
+                  <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 'medium' }}>
+                    Active Session: {sessionInfo.shortname}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+                    {sessionInfo.locationName} • {formatStartTime(sessionInfo.startedAt)}
+                  </Typography>
+                </>
+              ) : (
+                <Typography variant="h6" sx={{ color: 'text.secondary' }}>
+                  No Active Session
+                </Typography>
+              )}
+            </Box>
+            {sessionInfo && (
+              <Button
+                variant="outlined"
+                startIcon={<Print />}
+                onClick={() => setShowLabelPrinter(true)}
+                size="small"
+              >
+                Print Rack Labels
+              </Button>
+            )}
+          </Box>
+          <Grid container spacing={3} alignItems="center">
+            {streamlinedKPIs.map((kpi, index) => (
+              <Grid item xs={6} md={3} key={index}>
               <Box 
                 sx={{ 
                   textAlign: 'center',
@@ -264,5 +353,16 @@ export default function KPIOverview() {
         </Grid>
       </CardContent>
     </Card>
+    
+    {/* Rack Label Printer Dialog */}
+    {sessionInfo && (
+      <RackLabelPrinter
+        open={showLabelPrinter}
+        onClose={() => setShowLabelPrinter(false)}
+        sessionId={sessionInfo.id}
+        sessionName={sessionInfo.shortname}
+      />
+    )}
+    </>
   )
 }

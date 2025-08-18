@@ -561,7 +561,7 @@ function RackDetailPageContent() {
                     {searchTerm || showManualOnly ? 'No scans match your filters' : 'No scans found'}
                   </Typography>
                 ) : viewMode === 'compact' ? (
-                  <TableContainer component={Paper} variant="outlined">
+                  <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                     <Table size="small">
                       <TableHead>
                         <TableRow>

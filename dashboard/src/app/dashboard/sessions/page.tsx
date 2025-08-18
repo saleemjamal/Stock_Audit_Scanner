@@ -604,7 +604,7 @@ export default function AuditSessionsPage() {
         Completed Sessions
       </Typography>
       
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
         <Table>
           <TableHead>
             <TableRow>

@@ -300,7 +300,7 @@ export default function ReviewScansPage() {
                   Last chance to make changes before sending to supervisor
                 </Typography>
                 
-                <TableContainer>
+                <TableContainer sx={{ overflowX: 'auto' }}>
                   <Table size="small">
                     <TableBody>
                       <TableRow>

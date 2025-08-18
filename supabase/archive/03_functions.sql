@@ -1,252 +1,221 @@
--- Database Functions and Triggers
--- Execute this after running 01_schema.sql and 02_rls_policies.sql
+-- 03. Essential Functions - Google SSO Compatible
+-- Only the essential functions we actually need
 
--- Function to auto-generate racks when audit session starts
-CREATE OR REPLACE FUNCTION generate_racks_for_audit()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Only generate racks when status changes to 'active'
-    IF NEW.status = 'active' AND (OLD.status IS NULL OR OLD.status != 'active') THEN
-        -- Generate numbered racks
-        FOR i IN 1..NEW.total_rack_count LOOP
-            INSERT INTO racks (
-                audit_session_id, 
-                location_id, 
-                rack_number,
-                status
-            )
-            VALUES (
-                NEW.id, 
-                NEW.location_id, 
-                'R-' || LPAD(i::TEXT, 3, '0'), -- R-001, R-002, etc.
-                'available'
-            );
-        END LOOP;
-        
-        -- Update started_at timestamp
-        NEW.started_at = NOW();
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to generate racks when audit starts
-CREATE TRIGGER generate_racks_on_audit_start
-    BEFORE UPDATE ON audit_sessions
-    FOR EACH ROW
-    EXECUTE FUNCTION generate_racks_for_audit();
-
--- Function to notify supervisors when rack is ready for approval
-CREATE OR REPLACE FUNCTION notify_supervisors_rack_ready()
-RETURNS TRIGGER AS $$
-DECLARE
-    supervisor_id UUID;
-    audit_location_id INTEGER;
-BEGIN
-    -- Only create notification when ready_for_approval changes to true
-    IF NEW.ready_for_approval = true AND (OLD.ready_for_approval IS NULL OR OLD.ready_for_approval = false) THEN
-        -- Get the location for this rack
-        SELECT location_id INTO audit_location_id FROM racks WHERE id = NEW.id;
-        
-        -- Notify all supervisors and admins who have access to this location
-        FOR supervisor_id IN 
-            SELECT id FROM users 
-            WHERE role IN ('supervisor', 'admin')
-            AND (location_ids @> ARRAY[audit_location_id] OR role = 'admin')
-            AND active = true
-        LOOP
-            INSERT INTO notifications (
-                user_id,
-                type,
-                title,
-                message,
-                rack_id,
-                audit_session_id
-            ) VALUES (
-                supervisor_id,
-                'approval_needed',
-                'Rack Ready for Approval',
-                'Rack ' || NEW.rack_number || ' is ready for approval with ' || NEW.total_scans || ' scans',
-                NEW.id,
-                NEW.audit_session_id
-            );
-        END LOOP;
-        
-        -- Update ready_at timestamp
-        NEW.ready_at = NOW();
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to notify supervisors
-CREATE TRIGGER notify_supervisors_on_rack_ready
-    BEFORE UPDATE ON racks
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_supervisors_rack_ready();
-
--- Function to update rack scan count
-CREATE OR REPLACE FUNCTION update_rack_scan_count()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Update total_scans count for the rack
-    UPDATE racks 
-    SET total_scans = (
-        SELECT COUNT(*) 
-        FROM scans 
-        WHERE rack_id = NEW.rack_id
-    )
-    WHERE id = NEW.rack_id;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to update scan count when new scan is added
-CREATE TRIGGER update_rack_count_on_scan
-    AFTER INSERT ON scans
-    FOR EACH ROW
-    EXECUTE FUNCTION update_rack_scan_count();
-
--- Function to create audit log entries
-CREATE OR REPLACE FUNCTION create_audit_log_entry()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO audit_log (
-        user_id,
-        action,
-        entity_type,
-        entity_id,
-        old_values,
-        new_values
-    ) VALUES (
-        auth.uid(),
-        TG_OP,
-        TG_TABLE_NAME,
-        COALESCE(NEW.id, OLD.id),
-        CASE WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(OLD) END,
-        CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE to_jsonb(NEW) END
-    );
-    
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
--- Add audit logging to key tables
-CREATE TRIGGER audit_log_racks
-    AFTER INSERT OR UPDATE OR DELETE ON racks
-    FOR EACH ROW
-    EXECUTE FUNCTION create_audit_log_entry();
-
-CREATE TRIGGER audit_log_audit_sessions
-    AFTER INSERT OR UPDATE OR DELETE ON audit_sessions
-    FOR EACH ROW
-    EXECUTE FUNCTION create_audit_log_entry();
-
--- Function to handle user registration
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO users (id, email, full_name, role)
-    VALUES (
-        NEW.id,
-        NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
-        COALESCE(NEW.raw_user_meta_data->>'role', 'scanner')
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger for new user registration
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW
-    EXECUTE FUNCTION handle_new_user();
-
--- Function to get rack assignment for scanner
-CREATE OR REPLACE FUNCTION assign_available_rack(
-    p_audit_session_id UUID,
-    p_user_id UUID
-)
-RETURNS UUID AS $$
-DECLARE
-    available_rack_id UUID;
-BEGIN
-    -- Find first available rack in the audit session
-    SELECT id INTO available_rack_id
-    FROM racks
-    WHERE audit_session_id = p_audit_session_id
-    AND status = 'available'
-    ORDER BY rack_number
-    LIMIT 1;
-    
-    -- If found, assign it to the user
-    IF available_rack_id IS NOT NULL THEN
-        UPDATE racks
-        SET 
-            status = 'assigned',
-            scanner_id = p_user_id,
-            assigned_at = NOW()
-        WHERE id = available_rack_id;
-    END IF;
-    
-    RETURN available_rack_id;
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to complete audit session
-CREATE OR REPLACE FUNCTION complete_audit_session(p_audit_session_id UUID)
-RETURNS BOOLEAN AS $$
-DECLARE
-    pending_racks INTEGER;
-BEGIN
-    -- Check if all racks are approved
-    SELECT COUNT(*) INTO pending_racks
-    FROM racks
-    WHERE audit_session_id = p_audit_session_id
-    AND status != 'approved';
-    
-    -- If no pending racks, complete the audit
-    IF pending_racks = 0 THEN
-        UPDATE audit_sessions
-        SET 
-            status = 'completed',
-            completed_at = NOW(),
-            completed_by = auth.uid()
-        WHERE id = p_audit_session_id;
-        
-        RETURN TRUE;
-    END IF;
-    
-    RETURN FALSE;
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to get audit session stats
+-- Get audit session statistics
 CREATE OR REPLACE FUNCTION get_audit_session_stats(p_audit_session_id UUID)
 RETURNS TABLE (
     total_racks INTEGER,
-    available_racks INTEGER,
     assigned_racks INTEGER,
-    ready_racks INTEGER,
+    completed_racks INTEGER,
     approved_racks INTEGER,
     rejected_racks INTEGER,
-    total_scans BIGINT
+    pending_approval INTEGER,
+    total_scans BIGINT,
+    completion_percentage NUMERIC
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT 
         COUNT(*)::INTEGER as total_racks,
-        COUNT(CASE WHEN r.status = 'available' THEN 1 END)::INTEGER as available_racks,
-        COUNT(CASE WHEN r.status = 'assigned' THEN 1 END)::INTEGER as assigned_racks,
-        COUNT(CASE WHEN r.status = 'ready_for_approval' THEN 1 END)::INTEGER as ready_racks,
+        COUNT(CASE WHEN r.status != 'available' THEN 1 END)::INTEGER as assigned_racks,
+        COUNT(CASE WHEN r.status IN ('ready_for_approval', 'approved', 'rejected') THEN 1 END)::INTEGER as completed_racks,
         COUNT(CASE WHEN r.status = 'approved' THEN 1 END)::INTEGER as approved_racks,
         COUNT(CASE WHEN r.status = 'rejected' THEN 1 END)::INTEGER as rejected_racks,
-        COALESCE(SUM(r.total_scans), 0) as total_scans
+        COUNT(CASE WHEN r.ready_for_approval = true AND r.status = 'ready_for_approval' THEN 1 END)::INTEGER as pending_approval,
+        COALESCE(scan_stats.total_scans, 0) as total_scans,
+        CASE 
+            WHEN COUNT(*) > 0 THEN 
+                ROUND((COUNT(CASE WHEN r.status = 'approved' THEN 1 END)::NUMERIC / COUNT(*)::NUMERIC) * 100, 2)
+            ELSE 0 
+        END as completion_percentage
     FROM racks r
+    LEFT JOIN (
+        SELECT 
+            audit_session_id,
+            COUNT(*) as total_scans
+        FROM scans 
+        WHERE audit_session_id = p_audit_session_id
+        GROUP BY audit_session_id
+    ) scan_stats ON scan_stats.audit_session_id = p_audit_session_id
     WHERE r.audit_session_id = p_audit_session_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Assign rack to user
+CREATE OR REPLACE FUNCTION assign_rack_to_user(p_rack_id UUID, p_user_id UUID)
+RETURNS JSON AS $$
+DECLARE
+    rack_record RECORD;
+    user_record RECORD;
+BEGIN
+    -- Check if user exists and get their info
+    SELECT * INTO user_record FROM users WHERE id = p_user_id;
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'error', 'User not found');
+    END IF;
+    
+    -- Check if rack exists and is available
+    SELECT * INTO rack_record FROM racks WHERE id = p_rack_id;
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'error', 'Rack not found');
+    END IF;
+    
+    IF rack_record.status != 'available' THEN
+        RETURN json_build_object('success', false, 'error', 'Rack is not available');
+    END IF;
+    
+    -- Check if user has access to this location
+    IF NOT (rack_record.location_id = ANY(user_record.location_ids) OR user_record.role = 'superuser') THEN
+        RETURN json_build_object('success', false, 'error', 'User does not have access to this location');
+    END IF;
+    
+    -- Assign the rack
+    UPDATE racks 
+    SET 
+        status = 'assigned',
+        scanner_id = p_user_id,
+        assigned_at = NOW(),
+        updated_at = NOW()
+    WHERE id = p_rack_id;
+    
+    RETURN json_build_object('success', true, 'message', 'Rack assigned successfully');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Mark rack as ready for approval
+CREATE OR REPLACE FUNCTION mark_rack_ready(p_rack_id UUID)
+RETURNS JSON AS $$
+DECLARE
+    rack_record RECORD;
+    scan_count INTEGER;
+BEGIN
+    -- Get rack info
+    SELECT * INTO rack_record FROM racks WHERE id = p_rack_id;
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'error', 'Rack not found');
+    END IF;
+    
+    -- Check if rack belongs to current user
+    IF rack_record.scanner_id != (get_current_user_profile()).id AND NOT is_supervisor_or_above() THEN
+        RETURN json_build_object('success', false, 'error', 'Not authorized');
+    END IF;
+    
+    -- Check if rack has any scans
+    SELECT COUNT(*) INTO scan_count FROM scans WHERE rack_id = p_rack_id;
+    IF scan_count = 0 THEN
+        RETURN json_build_object('success', false, 'error', 'Cannot mark empty rack as ready');
+    END IF;
+    
+    -- Mark as ready for approval
+    UPDATE racks 
+    SET 
+        status = 'ready_for_approval',
+        ready_for_approval = true,
+        ready_at = NOW(),
+        completed_at = NOW(),
+        updated_at = NOW()
+    WHERE id = p_rack_id;
+    
+    -- Create notification for supervisors
+    INSERT INTO notifications (user_id, title, message, type, created_by)
+    SELECT 
+        u.id,
+        'Rack Ready for Approval',
+        format('Rack %s at %s is ready for approval', rack_record.rack_number, l.name),
+        'approval_request',
+        rack_record.scanner_id
+    FROM users u
+    JOIN locations l ON l.id = rack_record.location_id
+    WHERE u.role IN ('supervisor', 'superuser')
+      AND (rack_record.location_id = ANY(u.location_ids) OR u.role = 'superuser');
+    
+    RETURN json_build_object('success', true, 'message', 'Rack marked as ready for approval');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Approve or reject rack
+CREATE OR REPLACE FUNCTION approve_reject_rack(
+    p_rack_id UUID, 
+    p_approved BOOLEAN, 
+    p_reason TEXT DEFAULT NULL
+)
+RETURNS JSON AS $$
+DECLARE
+    rack_record RECORD;
+    current_user_id UUID;
+BEGIN
+    -- Get current user
+    SELECT id INTO current_user_id FROM get_current_user_profile();
+    IF current_user_id IS NULL THEN
+        RETURN json_build_object('success', false, 'error', 'User not authenticated');
+    END IF;
+    
+    -- Check if user is supervisor or above
+    IF NOT is_supervisor_or_above() THEN
+        RETURN json_build_object('success', false, 'error', 'Not authorized - supervisor role required');
+    END IF;
+    
+    -- Get rack info
+    SELECT * INTO rack_record FROM racks WHERE id = p_rack_id;
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'error', 'Rack not found');
+    END IF;
+    
+    -- Check if rack is ready for approval
+    IF NOT rack_record.ready_for_approval THEN
+        RETURN json_build_object('success', false, 'error', 'Rack is not ready for approval');
+    END IF;
+    
+    -- Update rack status
+    IF p_approved THEN
+        UPDATE racks 
+        SET 
+            status = 'approved',
+            ready_for_approval = false,
+            approved_by = current_user_id,
+            approved_at = NOW(),
+            updated_at = NOW()
+        WHERE id = p_rack_id;
+    ELSE
+        UPDATE racks 
+        SET 
+            status = 'rejected',
+            ready_for_approval = false,
+            rejected_by = current_user_id,
+            rejected_at = NOW(),
+            rejection_reason = COALESCE(p_reason, 'No reason provided'),
+            updated_at = NOW()
+        WHERE id = p_rack_id;
+    END IF;
+    
+    -- Create notification for scanner
+    INSERT INTO notifications (user_id, title, message, type, created_by)
+    VALUES (
+        rack_record.scanner_id,
+        CASE WHEN p_approved THEN 'Rack Approved' ELSE 'Rack Rejected' END,
+        format('Rack %s has been %s', 
+               rack_record.rack_number, 
+               CASE WHEN p_approved THEN 'approved' ELSE 'rejected' || COALESCE(': ' || p_reason, '') END),
+        CASE WHEN p_approved THEN 'approval' ELSE 'rejection' END,
+        current_user_id
+    );
+    
+    RETURN json_build_object(
+        'success', true, 
+        'message', format('Rack %s successfully', CASE WHEN p_approved THEN 'approved' ELSE 'rejected' END)
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update user last login
+CREATE OR REPLACE FUNCTION update_user_last_login(p_email TEXT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE users 
+    SET last_login_at = NOW() 
+    WHERE email = p_email;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+SELECT '✅ ESSENTIAL FUNCTIONS CREATED!' as status;
+SELECT 'Next: Run 04_seed_data.sql' as next_step;

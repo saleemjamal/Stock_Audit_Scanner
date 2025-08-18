@@ -45,6 +45,7 @@ npm run type-check             # TypeScript type checking
 # 2. supabase/02_rls_policies.sql
 # 3. supabase/03_functions.sql
 # 4. supabase/04_seed.sql (for test data)
+# 5. supabase/rack_reports_functions.sql (for rack reports)
 ```
 
 ## Architecture
@@ -104,6 +105,8 @@ dashboard/src/
 10. **Smart Duplicate Detection**: One-time warnings instead of blocking scans
 11. **Collapsible UI**: Responsive dashboard with mini sidebar mode
 12. **Real-time Data**: Live scanner names and scan counts in rack maps
+13. **Rack Detail Reports**: Two-tab reporting system with individual rack CSV exports for physical verification
+14. **Active Rack Filtering**: Option to include/exclude in-progress racks with status warnings
 
 ## Environment Setup
 
@@ -171,6 +174,8 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 12. **Smart Duplicate Handling**: Informational warnings instead of blocking scans ✅
 13. **Responsive UI**: Collapsible sidebar and real-time data updates ✅
 14. **Barcode Search**: Find specific items in scan lists ✅
+15. **Rack Barcode Scanning**: Auto-select racks by scanning date-based barcodes (DDMM-###) ✅
+16. **Enhanced User Management**: Force delete option for test data with foreign key cleanup ✅
 
 ### NOT Implementing (Per User Feedback)
 - Auto-rack assignment (keep manual selection)
@@ -204,7 +209,7 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 - Advanced admin features
 - Performance optimizations
 
-## Current Status
+## Current Status (Aug 18, 2025)
 
 ✅ **Completed**: 
 - Google OAuth authentication working on both web dashboard and mobile app with user whitelisting
@@ -272,10 +277,20 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 - **System Stability**: All major performance bottlenecks resolved ✅
 - **Code Quality**: Clean architecture with proper error handling ✅
 
-📋 **System Status** (Aug 15, 2025): 
-**PRODUCTION READY** - All core features implemented and tested
+📋 **System Status** (Aug 18, 2025): 
+**PRODUCTION READY** - All core features implemented and tested, including comprehensive rack reporting system
 
-✅ **Latest Completed Features (Aug 15, 2025)**:
+✅ **Latest Completed Features (Aug 18, 2025)**:
+1. **Rack Detail Reports System** - Complete two-tab Reports page with individual rack CSV exports for physical verification
+2. **Active Rack Filtering** - Toggle to include/exclude in-progress racks with warning indicators
+3. **Advanced Report Search** - Filter racks by number or scanner name within selected audit sessions
+4. **Status-Based Visual Indicators** - Color-coded rack status chips with emoji icons (🔄 In Progress, ✅ Approved, etc.)
+5. **Comprehensive CSV Export** - Individual rack reports with scan details, timestamps, and completion status
+6. **Mobile-Responsive Tables** - Horizontal scroll support across all TableContainer components
+7. **SQL Function Optimization** - Fixed ambiguous column references with proper table aliases
+8. **Enhanced Reports Navigation** - Clean separation between session-level and rack-level reporting
+
+✅ **Previous Completed Features (Aug 15, 2025)**:
 1. **Dashboard UX Overhaul** - Streamlined KPIs (4 focused metrics vs 6 cards), modern navigation design
 2. **Admin Section Organization** - Collapsible admin navigation (Audit Sessions, Locations, Users) 
 3. **Help & Support System** - Comprehensive FAQ with 7 sections accessible from profile menu
@@ -288,6 +303,11 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 10. **Smart Duplicate Detection** - Changed from blocking to one-time informational warnings
 11. **Real Data in Rack Map** - Shows actual scanner usernames and scan counts instead of placeholders
 12. **Mobile Barcode Search** - Added search functionality to ReviewScansScreen for finding specific items
+13. **Rack Barcode Scanning System** - Date-based barcode format (DDMM-###) with auto-selection workflow
+14. **Enhanced User Deletion** - Force delete option with foreign key constraint cleanup for test data
+15. **Dashboard Widget Scoping** - All widgets filter by active audit session and location
+16. **Enhanced Session Display** - Shows location name and start time in KPI overview
+17. **Scanner Status Fix** - Shows both scanners and supervisors (not just scanner role)
 
 ✅ **Core System Features (Completed)**:
 1. **Complete Web Scanning System** - Dashboard scanning with USB scanner support and role-based access
@@ -296,7 +316,7 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 4. **Rejection Workflow Implementation** - Complete feedback loop with supervisor reasons and scanner rework
 5. **Scanner Self-Review Screen** - Scanners can review and delete scans before supervisor approval
 6. **Auto-Flush on Review** - Queue automatically flushes when entering review screen
-7. **Audit Session Management** - Web-based session lifecycle (start, add racks, close)
+7. **Audit Session Management** - Web-based session lifecycle (start, add racks, close) with no time limits
 8. **Automated Rack Generation** - Bulk creation with simple sequential numbering
 9. **Role-Based Controls** - Super users can add racks, supervisors manage sessions
 10. **Emoji-Based Delete Buttons** - Reliable delete functionality using 🗑️ emoji (no icon font dependencies)
@@ -484,6 +504,39 @@ Follow the **phased development** approach documented in `/docs/Implementation_S
 - **Workflow**: Scan → Submit → Reject with reason → Original scanner reworks → Re-submit
 - **Files**: Migration in `supabase/rejection_reason_migration.sql`
 - **Result**: Complete feedback loop for quality control and rack corrections
+
+### 19. Rack Barcode Scanning Implementation (COMPLETED - Aug 18, 2025)
+- **Achievement**: Date-based rack barcode system with auto-selection workflow
+- **Barcode Format**: DDMM-### (e.g., 1808-001, 1808-002) for daily sequential numbering
+- **Components Added**:
+  - `RackBarcodeScanner.tsx`: Validates and processes rack barcodes
+  - Database migration: `working_date_migration.sql` for date-based barcode format
+  - Supabase RPC functions: `validate_rack_barcode` and `assign_rack_to_scanner`
+- **Features Implemented**:
+  - Auto-validation of scanned rack barcodes against active audit session
+  - Automatic rack assignment and switch to single-rack mode
+  - USB scanner support with real-time validation feedback
+  - Integration with existing web scanning workflow
+- **Database Changes**: 
+  - Removed unique constraint on rack barcodes (multiple sessions per day)
+  - Added barcode column to racks table with date-based format
+- **Workflow**: Scan rack barcode → validate → auto-assign → start item scanning
+- **Result**: Streamlined rack selection process reducing manual errors
+
+### 20. Enhanced User Management System (COMPLETED - Aug 18, 2025)
+- **Problem**: Users with foreign key dependencies couldn't be deleted, blocking test data cleanup
+- **Solution**: Enhanced user deletion with constraint checking and force delete option
+- **Features Added**:
+  - Pre-deletion foreign key validation for active assignments
+  - Force delete confirmation for test data cleanup
+  - Automated cleanup of dependent records (racks, notifications, audit sessions)
+  - Detailed error messages for constraint violations
+- **Database Operations**: 
+  - Unassign racks and reset status to available
+  - Clean up notifications and audit session references
+  - Preserve data integrity while allowing test user removal
+- **Safety Features**: Clear warnings about force delete being for test data only
+- **Result**: Complete user lifecycle management with safe cleanup options
 
 ### Platform Considerations
 - **Windows Development**: Use `cd android && gradlew` (without ./)
@@ -788,3 +841,4 @@ npm run distribute
 
 - please give very concise answers going forward
 - be very concise unless requested.
+- we are focusing only on web app development

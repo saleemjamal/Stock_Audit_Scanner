@@ -113,12 +113,13 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
       return;
     }
     
-    // Check if this looks like a barcode scan
+    // Check if this looks like a barcode scan (contains tab/newline = scanner input)
     const isScannedInput = text.includes('\t') || text.includes('\n') || 
                           (cleanedText.length >= 8 && !manualMode);
     
     if (isScannedInput || manualMode) {
-      processScan(cleanedText, manualMode);
+      // Pass false for manual_entry when it's scanner input, true when it's manual
+      processScan(cleanedText, !isScannedInput);
     }
   };
 

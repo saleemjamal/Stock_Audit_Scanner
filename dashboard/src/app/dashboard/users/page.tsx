@@ -283,18 +283,90 @@ export default function UsersPage() {
     }
 
     try {
+      // Check for active assignments before deletion
+      const { data: assignments } = await supabase
+        .from('racks')
+        .select('id')
+        .eq('scanner_id', userId)
+        .in('status', ['assigned', 'ready_for_approval'])
+
+      if (assignments && assignments.length > 0) {
+        const forceDelete = confirm(
+          `User "${username}" has ${assignments.length} active rack assignment(s).\n\n` +
+          `Click OK to FORCE DELETE (will unassign racks and delete user - USE FOR TEST DATA ONLY)\n` +
+          `Click Cancel to abort deletion.`
+        )
+        
+        if (!forceDelete) {
+          setSnackbar({ 
+            open: true, 
+            message: `Deletion cancelled. User "${username}" has active assignments.`, 
+            severity: 'error' 
+          })
+          return
+        }
+
+        // Force cleanup for test data
+        console.log('Force deleting user with cleanup...')
+        
+        // Unassign all racks
+        await supabase
+          .from('racks')
+          .update({ 
+            scanner_id: null, 
+            status: 'available', 
+            assigned_at: null 
+          })
+          .eq('scanner_id', userId)
+
+        // Clean up notifications
+        await supabase
+          .from('notifications')
+          .delete()
+          .or(`user_id.eq.${userId},created_by.eq.${userId}`)
+
+        // Nullify audit session references
+        await supabase
+          .from('audit_sessions')
+          .update({ started_by: null })
+          .eq('started_by', userId)
+          
+        await supabase
+          .from('audit_sessions')
+          .update({ completed_by: null })
+          .eq('completed_by', userId)
+      }
+
       const { error } = await supabase
         .from('users')
         .delete()
         .eq('id', userId)
 
-      if (error) throw error
+      if (error) {
+        console.error('Delete error details:', error)
+        
+        // Handle specific error types
+        if (error.code === '23503') {
+          setSnackbar({ 
+            open: true, 
+            message: `Cannot delete user "${username}" - they have associated data (scans, sessions, etc.). Contact admin to resolve dependencies.`, 
+            severity: 'error' 
+          })
+        } else {
+          throw error
+        }
+        return
+      }
       
       setSnackbar({ open: true, message: 'User deleted successfully', severity: 'success' })
       await loadUsers()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting user:', error)
-      setSnackbar({ open: true, message: 'Error deleting user', severity: 'error' })
+      setSnackbar({ 
+        open: true, 
+        message: `Error deleting user: ${error.message || 'Unknown error'}`, 
+        severity: 'error' 
+      })
     }
   }
 
@@ -335,7 +407,7 @@ export default function UsersPage() {
 
         <Card>
           <CardContent>
-            <TableContainer component={Paper}>
+            <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
               <Table>
                 <TableHead>
                   <TableRow>

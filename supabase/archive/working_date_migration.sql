@@ -1,18 +1,36 @@
--- Add barcode column to racks table and create validation function
--- Migration: Add Rack Barcode Support
+-- Working date-based barcode migration using temporary table approach
+-- Format: DDMM-### (e.g., 1808-001, 1808-002, 1808-003)
 
--- 1. Add barcode column to racks table
-ALTER TABLE racks ADD COLUMN IF NOT EXISTS barcode VARCHAR(20) UNIQUE;
+-- 1. Drop unique constraint first
+ALTER TABLE racks DROP CONSTRAINT IF EXISTS racks_barcode_unique;
 
--- 2. Generate barcodes for existing racks (RACK001, RACK002, etc.)
+-- 2. Clear existing barcodes
+UPDATE racks SET barcode = NULL;
+
+-- 3. Create temporary table with numbered rows
+CREATE TEMP TABLE rack_numbers AS
+SELECT 
+  id,
+  TO_CHAR(NOW(), 'DDMM') || '-' || LPAD(
+    ROW_NUMBER() OVER (PARTITION BY audit_session_id ORDER BY rack_number)::text, 
+    3, 
+    '0'
+  ) as new_barcode
+FROM racks;
+
+-- 4. Update racks table from temporary table
 UPDATE racks 
-SET barcode = 'RACK' || LPAD(rack_number::text, 3, '0')
-WHERE barcode IS NULL;
+SET barcode = rn.new_barcode
+FROM rack_numbers rn
+WHERE racks.id = rn.id;
 
--- 3. Create index for fast barcode lookups
+-- 5. Drop temporary table
+DROP TABLE rack_numbers;
+
+-- 6. Create index for fast barcode lookups (non-unique)
 CREATE INDEX IF NOT EXISTS idx_racks_barcode ON racks(barcode);
 
--- 4. Create validation function for rack barcode scanning
+-- 7. Update validation function for new barcode format
 CREATE OR REPLACE FUNCTION validate_rack_barcode(
   p_barcode VARCHAR,
   p_audit_session_id UUID,
@@ -20,13 +38,12 @@ CREATE OR REPLACE FUNCTION validate_rack_barcode(
 ) RETURNS JSON AS $$
 DECLARE
   rack_record RECORD;
-  result JSON;
 BEGIN
-  -- Check if barcode format is valid (RACK### pattern)
-  IF p_barcode !~ '^RACK[0-9]{3}$' THEN
+  -- Check if barcode format is valid (DDMM-### pattern)
+  IF p_barcode !~ '^[0-9]{4}-[0-9]{3}$' THEN
     RETURN json_build_object(
       'valid', false,
-      'error', 'Invalid barcode format. Expected format: RACK001',
+      'error', 'Invalid barcode format. Expected format: DDMM-### (e.g., 1808-001)',
       'code', 'INVALID_FORMAT'
     );
   END IF;
@@ -49,11 +66,21 @@ BEGIN
     );
   END IF;
 
-  -- Check if rack is available (not assigned to another scanner)
-  IF rack_record.status != 'available' AND rack_record.scanner_id != p_scanner_id THEN
+  -- Check if rack is available or rejectable by this scanner
+  IF rack_record.status NOT IN ('available', 'rejected') THEN
     RETURN json_build_object(
       'valid', false,
-      'error', 'Rack is already assigned to another scanner',
+      'error', 'Rack is currently assigned to another scanner',
+      'code', 'RACK_UNAVAILABLE',
+      'assigned_to', rack_record.scanner_id
+    );
+  END IF;
+  
+  -- If rejected, must be owned by this scanner
+  IF rack_record.status = 'rejected' AND rack_record.scanner_id != p_scanner_id THEN
+    RETURN json_build_object(
+      'valid', false,
+      'error', 'This rejected rack belongs to another scanner',
       'code', 'RACK_UNAVAILABLE',
       'assigned_to', rack_record.scanner_id
     );
@@ -74,7 +101,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 5. Create function to assign rack to scanner after successful barcode scan
+-- 7. Create function to assign rack to scanner after successful barcode scan
 CREATE OR REPLACE FUNCTION assign_rack_to_scanner(
   p_rack_id UUID,
   p_scanner_id UUID
@@ -114,51 +141,57 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 6. Add barcode generation function for new sessions
+-- 8. Update barcode generation function for new sessions
 CREATE OR REPLACE FUNCTION generate_rack_barcodes(p_audit_session_id UUID)
 RETURNS INTEGER AS $$
 DECLARE
   rack_count INTEGER := 0;
+  date_prefix VARCHAR;
+  max_sequence INTEGER;
 BEGIN
-  -- Update any racks without barcodes in this session
-  UPDATE racks 
-  SET barcode = 'RACK' || LPAD(rack_number::text, 3, '0')
+  -- Get today's date prefix
+  date_prefix := TO_CHAR(NOW(), 'DDMM');
+  
+  -- Find the highest sequence number for today's date in this session
+  SELECT COALESCE(
+    MAX(SUBSTRING(barcode, 6)::INTEGER), 
+    0
+  ) INTO max_sequence
+  FROM racks 
   WHERE audit_session_id = p_audit_session_id 
-    AND barcode IS NULL;
-    
+    AND barcode LIKE date_prefix || '-%';
+  
+  -- Create temp table for new racks
+  CREATE TEMP TABLE new_rack_numbers AS
+  SELECT 
+    id,
+    date_prefix || '-' || LPAD(
+      (max_sequence + ROW_NUMBER() OVER (ORDER BY rack_number))::text, 
+      3, 
+      '0'
+    ) as new_barcode
+  FROM racks
+  WHERE audit_session_id = p_audit_session_id 
+    AND (barcode IS NULL OR barcode = '');
+  
+  -- Update from temp table
+  UPDATE racks 
+  SET barcode = nrn.new_barcode
+  FROM new_rack_numbers nrn
+  WHERE racks.id = nrn.id;
+  
+  -- Get count and cleanup
   GET DIAGNOSTICS rack_count = ROW_COUNT;
+  DROP TABLE new_rack_numbers;
   
   RETURN rack_count;
 END;
 $$ LANGUAGE plpgsql;
 
--- 7. Create view for barcode printing/export
-CREATE OR REPLACE VIEW rack_barcodes_for_printing AS
-SELECT 
-  a.id as session_id,
-  l.name as location_name,
-  a.shortname as session_shortname,
-  r.id as rack_id,
-  r.rack_number,
-  r.barcode,
-  CONCAT(a.shortname, '-', LPAD(r.rack_number::text, 3, '0')) as display_name
-FROM racks r
-JOIN audit_sessions a ON r.audit_session_id = a.id
-JOIN locations l ON a.location_id = l.id
-WHERE a.status = 'active'
-  AND r.barcode IS NOT NULL
-ORDER BY l.name, r.rack_number;
-
--- 8. Grant necessary permissions
--- Note: Adjust these based on your RLS policies
+-- 9. Grant necessary permissions
 GRANT EXECUTE ON FUNCTION validate_rack_barcode(VARCHAR, UUID, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION assign_rack_to_scanner(UUID, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION generate_rack_barcodes(UUID) TO authenticated;
-GRANT SELECT ON rack_barcodes_for_printing TO authenticated;
 
--- Migration complete
--- Next steps:
--- 1. Run this migration in Supabase SQL Editor
--- 2. Test barcode validation function
--- 3. Generate physical barcode labels
--- 4. Update mobile app to use barcode scanning
+-- Migration complete!
+-- Uses temporary table approach to avoid window function restrictions

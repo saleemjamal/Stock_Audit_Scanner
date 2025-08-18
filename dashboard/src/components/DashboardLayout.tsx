@@ -43,6 +43,8 @@ import {
   ExpandLess,
   ExpandMore,
   HelpOutline,
+  Warning,
+  Gavel,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -61,6 +63,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [damageOpen, setDamageOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -72,6 +75,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     const savedAdminOpen = localStorage.getItem('adminSectionOpen')
     if (savedAdminOpen !== null) {
       setAdminOpen(JSON.parse(savedAdminOpen))
+    }
+    // Load damage section state from localStorage
+    const savedDamageOpen = localStorage.getItem('damageSectionOpen')
+    if (savedDamageOpen !== null) {
+      setDamageOpen(JSON.parse(savedDamageOpen))
     }
     // Load sidebar state from localStorage
     const savedSidebarOpen = localStorage.getItem('sidebarOpen')
@@ -126,6 +134,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     localStorage.setItem('adminSectionOpen', JSON.stringify(newAdminOpen))
   }
 
+  const handleDamageToggle = () => {
+    const newDamageOpen = !damageOpen
+    setDamageOpen(newDamageOpen)
+    localStorage.setItem('damageSectionOpen', JSON.stringify(newDamageOpen))
+  }
+
   const handleHelpOpen = () => {
     setHelpOpen(true)
     setAnchorEl(null) // Close profile menu
@@ -142,7 +156,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     // Add scanning for all users who can scan (scanner, supervisor, superuser)
     if (currentUser && ['scanner', 'supervisor', 'superuser'].includes(currentUser.role)) {
-      baseItems.push({ text: 'Scanning', icon: <QrCodeScanner />, href: '/dashboard/scanning' })
+      baseItems.push(
+        { text: 'Scanning', icon: <QrCodeScanner />, href: '/dashboard/scanning' }
+      )
     }
 
     // Add other items based on role
@@ -169,6 +185,22 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       { text: 'Locations', icon: <LocationOn />, href: '/dashboard/locations' },
       { text: 'Users', icon: <People />, href: '/dashboard/users' },
     ]
+  }
+
+  const getDamageItems = () => {
+    const items = []
+    
+    // All users who can scan can report damage
+    if (currentUser && ['scanner', 'supervisor', 'superuser'].includes(currentUser.role)) {
+      items.push({ text: 'Report Damage', icon: <Warning />, href: '/dashboard/damage' })
+    }
+    
+    // Only super users can approve damage
+    if (currentUser?.role === 'superuser') {
+      items.push({ text: 'Approvals', icon: <Gavel />, href: '/dashboard/damage-approvals' })
+    }
+    
+    return items
   }
 
   const drawer = (
@@ -243,6 +275,82 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </ListItem>
             )
           })}
+
+          {/* Damage Section - All users who can scan */}
+          {currentUser && ['scanner', 'supervisor', 'superuser'].includes(currentUser.role) && sidebarOpen && getDamageItems().length > 0 && (
+            <>
+              <ListItem disablePadding>
+                <ListItemButton 
+                  onClick={handleDamageToggle}
+                  sx={{
+                    mx: 1,
+                    my: 0.5,
+                    borderRadius: 2,
+                    minHeight: 48,
+                    backgroundColor: 'warning.50',
+                    '&:hover': {
+                      backgroundColor: 'warning.100',
+                    },
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 40 }}>
+                    <Warning />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Damage"
+                    primaryTypographyProps={{
+                      fontSize: '0.875rem',
+                      fontWeight: 'medium'
+                    }}
+                  />
+                  {damageOpen ? <ExpandLess /> : <ExpandMore />}
+                </ListItemButton>
+              </ListItem>
+
+              <Collapse in={damageOpen} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding>
+                  {getDamageItems().map((item) => {
+                    const isActive = typeof window !== 'undefined' && window.location.pathname === item.href
+                    
+                    return (
+                      <ListItem key={item.text} disablePadding>
+                        <ListItemButton 
+                          onClick={() => router.push(item.href)}
+                          sx={{
+                            mx: 1,
+                            my: 0.5,
+                            ml: 4, // Indent sub-items
+                            borderRadius: 2,
+                            minHeight: 40,
+                            backgroundColor: isActive ? 'action.selected' : 'transparent',
+                            color: isActive ? 'text.primary' : 'text.primary',
+                            '&:hover': {
+                              backgroundColor: isActive ? 'action.selected' : 'action.hover',
+                            },
+                            '& .MuiListItemIcon-root': {
+                              color: isActive ? 'text.primary' : 'text.secondary',
+                              minWidth: 32,
+                            }
+                          }}
+                        >
+                          <ListItemIcon sx={{ minWidth: 32 }}>
+                            {item.icon}
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary={item.text}
+                            primaryTypographyProps={{
+                              fontSize: '0.8125rem',
+                              fontWeight: isActive ? 'medium' : 'regular'
+                            }}
+                          />
+                        </ListItemButton>
+                      </ListItem>
+                    )
+                  })}
+                </List>
+              </Collapse>
+            </>
+          )}
 
           {/* Admin Section - Superuser Only */}
           {currentUser?.role === 'superuser' && sidebarOpen && (

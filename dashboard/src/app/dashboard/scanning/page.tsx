@@ -36,6 +36,7 @@ import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
 import WebScanner from '@/components/WebScanner'
 import PersonalStatsBar from '@/components/PersonalStatsBar'
+import RackBarcodeScanner from '@/components/RackBarcodeScanner'
 
 interface Location {
   id: number
@@ -50,6 +51,7 @@ interface Rack {
   status: 'available' | 'assigned' | 'ready_for_approval' | 'approved' | 'rejected'
   scanner_id?: string
   location_id: number
+  barcode?: string
   rejection_reason?: string
   original_scanner?: {
     id: string
@@ -259,7 +261,7 @@ export default function ScanningPage() {
 
       let query = supabase
         .from('racks')
-        .select('*')
+        .select('*, barcode')
         .eq('audit_session_id', sessionToUse)
         .eq('location_id', locationId)
         .order('rack_number')
@@ -439,6 +441,73 @@ export default function ScanningPage() {
     }
   }
 
+  const handleRackBarcodeScanned = async (rackBarcode: string) => {
+    if (!activeSession || !currentUser) {
+      setError('Missing session or user information')
+      return
+    }
+
+    try {
+      console.log('Rack barcode scanned:', rackBarcode)
+      
+      // Call validation function
+      const { data, error } = await supabase
+        .rpc('validate_rack_barcode', {
+          p_barcode: rackBarcode,
+          p_audit_session_id: activeSession.id,
+          p_scanner_id: currentUser.id
+        })
+
+      if (error) {
+        console.error('Validation error:', error)
+        setError('Failed to validate rack barcode')
+        return
+      }
+
+      if (!data.valid) {
+        setError(data.error || 'Invalid rack barcode')
+        return
+      }
+
+      // Rack is valid, now assign it to the scanner
+      const { data: assignData, error: assignError } = await supabase
+        .rpc('assign_rack_to_scanner', {
+          p_rack_id: data.rack.id,
+          p_scanner_id: currentUser.id
+        })
+
+      if (assignError) {
+        console.error('Assignment error:', assignError)
+        setError('Failed to assign rack')
+        return
+      }
+
+      if (!assignData.success) {
+        setError(assignData.error || 'Failed to assign rack')
+        return
+      }
+
+      // Success! Set the selected rack and switch to single rack mode
+      const assignedRack = {
+        id: data.rack.id,
+        rack_number: data.rack.rack_number,
+        status: 'assigned' as const,
+        scanner_id: currentUser.id,
+        location_id: selectedLocation!,
+        barcode: data.rack.barcode
+      }
+
+      setSelectedRack(assignedRack)
+      setRacks([assignedRack]) // Single rack focus
+      setError(null)
+      
+      console.log('Rack assigned successfully:', assignedRack)
+    } catch (error: any) {
+      console.error('Error processing rack barcode:', error)
+      setError('Failed to process rack barcode')
+    }
+  }
+
   const handleScanAdded = (barcode: string) => {
     // Optional: Add visual feedback or update counters
     console.log('Scan added:', barcode)
@@ -481,6 +550,7 @@ export default function ScanningPage() {
         <PersonalStatsBar 
           userId={currentUser.id} 
           userName={currentUser.username || currentUser.email}
+          sessionId={activeSession?.id}
         />
       )}
       
@@ -531,6 +601,16 @@ export default function ScanningPage() {
                   <Typography variant="subtitle2" sx={{ mb: 2, color: 'text.secondary' }}>
                     Location: {locations.find(l => l.id === selectedLocation)?.name || 'Loading...'}
                   </Typography>
+                )}
+
+                {/* Rack Barcode Scanner */}
+                {selectedLocation && activeSession && !selectedRack && (
+                  <Box sx={{ mb: 3 }}>
+                    <RackBarcodeScanner 
+                      onRackScanned={handleRackBarcodeScanned}
+                      disabled={!activeSession || !selectedLocation}
+                    />
+                  </Box>
                 )}
 
                 {/* Rack Selector / Single Rack Focus */}

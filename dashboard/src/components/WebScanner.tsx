@@ -146,7 +146,7 @@ export default function WebScanner({
   const [inputValue, setInputValue] = useState('')
   const [recentScans, setRecentScans] = useState<string[]>([])
   const [lastScanTime, setLastScanTime] = useState(0)
-  const [isManualEntry, setIsManualEntry] = useState(false)
+  const [inputStartTime, setInputStartTime] = useState<number>(0)
   const [queueSize, setQueueSize] = useState(0)
   const [sessionStats, setSessionStats] = useState({ totalScans: 0, rate: 0 })
   const [scanQueue] = useState(() => new WebScanQueue(setQueueSize))
@@ -201,25 +201,17 @@ export default function WebScanner({
 
   const handleInputChange = (value: string) => {
     setInputValue(value)
-    
-    // Detect rapid input (likely from USB scanner)
-    const now = Date.now()
-    const timeDiff = now - lastScanTime
-    
-    // If typing rapidly (< 50ms between characters), mark as scanner input
-    if (timeDiff < 50 && value.length > inputValue.length) {
-      setIsManualEntry(false)
-      return
+
+    // Record start time on first character
+    if (value.length === 1) {
+      setInputStartTime(Date.now())
     }
-    
-    // Mark as manual entry for slow typing
-    setIsManualEntry(true)
-    
-    // Process scan when Enter is pressed
+
+    // Backup: detect newline/CR (some scanners send this)
     if (value.includes('\n') || value.includes('\r')) {
       const barcode = value.replace(/[\n\r]/g, '').trim()
       if (barcode) {
-        processScan(barcode, false) // Scanner input = false
+        processScan(barcode, false) // Scanner
         setInputValue('')
       }
     }
@@ -228,11 +220,11 @@ export default function WebScanner({
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter') {
       event.preventDefault()
-      // Mark as manual entry when user presses Enter
-      setIsManualEntry(true)
       const barcode = inputValue.trim()
       if (barcode) {
-        processScan(barcode, true) // Manual enter = true
+        const timeDiff = Date.now() - inputStartTime
+        const isManual = timeDiff > 500
+        processScan(barcode, isManual)
         setInputValue('')
       }
     }
@@ -266,7 +258,7 @@ export default function WebScanner({
       rack_id: rackId,
       audit_session_id: auditSessionId,
       scanner_id: scannerId,
-    }, manualEntry ?? isManualEntry)
+    }, manualEntry ?? false)
     
     // Update UI
     setRecentScans(prev => [...prev, barcode].slice(-20)) // Keep last 20

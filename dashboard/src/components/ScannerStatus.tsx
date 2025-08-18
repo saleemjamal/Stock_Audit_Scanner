@@ -29,7 +29,7 @@ interface ScannerInfo {
   full_name: string | null
   last_scan_at: string | null
   current_rack: string | null
-  today_scans: number
+  session_scans: number
   approved_racks: number
   total_reviewed_racks: number
   time_since_last_scan: string
@@ -74,10 +74,10 @@ export default function ScannerStatus() {
     try {
       const supabase = createClient()
       
-      // Get active audit session
+      // Get active audit session with location
       const { data: activeSession } = await supabase
         .from('audit_sessions')
-        .select('id')
+        .select('id, location_id')
         .eq('status', 'active')
         .single()
 
@@ -87,12 +87,13 @@ export default function ScannerStatus() {
         return
       }
 
-      // Get all active scanners
+      // Get scanners and supervisors assigned to the audit session's location
       const { data: activeUsers } = await supabase
         .from('users')
         .select('id, username, full_name')
-        .eq('role', 'scanner')
+        .in('role', ['scanner', 'supervisor'])
         .eq('active', true)
+        .contains('location_ids', [activeSession.location_id])
 
       if (!activeUsers) {
         setScanners([])
@@ -113,13 +114,12 @@ export default function ScannerStatus() {
           .limit(1)
           .single()
 
-        // Get today's scan count
-        const { count: todayScans } = await supabase
+        // Get session scan count for this user
+        const { count: sessionScans } = await supabase
           .from('scans')
           .select('*', { count: 'exact', head: true })
           .eq('scanner_id', user.id)
           .eq('audit_session_id', activeSession.id)
-          .gte('created_at', new Date().toISOString().split('T')[0])
 
         // Get current assigned rack
         const { data: currentRack } = await supabase
@@ -152,7 +152,7 @@ export default function ScannerStatus() {
           full_name: user.full_name,
           last_scan_at: latestScan?.created_at || null,
           current_rack: currentRack?.rack_number || null,
-          today_scans: todayScans || 0,
+          session_scans: sessionScans || 0,
           approved_racks: approvedRacks,
           total_reviewed_racks: totalReviewedRacks,
           time_since_last_scan: timeSince,
@@ -199,8 +199,9 @@ export default function ScannerStatus() {
   }
 
   const getApprovalRate = (approved: number, total: number): string => {
-    if (total === 0) return 'N/A'
-    return `${Math.round((approved / total) * 100)}%`
+    if (total === 0) return '0 racks'
+    if (approved === 0) return `0/${total}`
+    return `${approved}/${total} (${Math.round((approved / total) * 100)}%)`
   }
 
   if (loading) {
@@ -261,7 +262,7 @@ export default function ScannerStatus() {
                         />
                       )}
                       <Chip
-                        label={`${scanner.today_scans} scans`}
+                        label={`${scanner.session_scans} scans`}
                         size="small"
                         variant="outlined"
                         icon={<TrendingUp sx={{ fontSize: '14px !important' }} />}
