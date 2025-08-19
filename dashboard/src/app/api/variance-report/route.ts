@@ -132,8 +132,8 @@ export async function GET(request: NextRequest) {
     const meta: VarianceReportMetadata = metadata[0];
     const items: VarianceReportItem[] = varianceData;
 
-    // Format currency for display
-    const formatCurrency = (value: number) => `₹${value.toFixed(2)}`;
+    // Format numbers for CSV (no currency symbol to avoid encoding issues)
+    const formatNumber = (value: number) => value.toFixed(2);
 
     // Generate CSV content
     const csvLines: string[] = [];
@@ -143,8 +143,8 @@ export async function GET(request: NextRequest) {
     csvLines.push(`Session: ${meta.session_shortname} - ${meta.location_name}`);
     csvLines.push(`Status: ${meta.session_status === 'active' ? 'Active Session' : 'Completed Session'}`);
     csvLines.push(`Generated: ${new Date(meta.generated_at).toLocaleString()}`);
-    csvLines.push(`Total Items: ${meta.total_inventory_items} | Expected Value: ${formatCurrency(meta.total_expected_value)} | Actual Value: ${formatCurrency(meta.total_actual_value)}`);
-    csvLines.push(`Variance: ${formatCurrency(meta.total_variance_value)} (${meta.total_variance_percent > 0 ? '+' : ''}${meta.total_variance_percent}%)`);
+    csvLines.push(`Total Items: ${meta.total_inventory_items} | Expected Value: ${formatNumber(meta.total_expected_value)} | Actual Value: ${formatNumber(meta.total_actual_value)}`);
+    csvLines.push(`Variance: ${formatNumber(meta.total_variance_value)} (${meta.total_variance_percent > 0 ? '+' : ''}${meta.total_variance_percent}%)`);
     csvLines.push('');
     
     // Summary by status
@@ -171,10 +171,10 @@ export async function GET(request: NextRequest) {
         item.expected_quantity.toString(),
         item.actual_quantity.toString(),
         item.variance_quantity.toString(),
-        formatCurrency(item.unit_cost),
-        formatCurrency(item.expected_value),
-        formatCurrency(item.actual_value),
-        formatCurrency(item.variance_value),
+        formatNumber(item.unit_cost),
+        formatNumber(item.expected_value),
+        formatNumber(item.actual_value),
+        formatNumber(item.variance_value),
         item.status
       ];
       csvLines.push(row.join(','));

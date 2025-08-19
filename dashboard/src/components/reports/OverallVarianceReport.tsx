@@ -243,6 +243,8 @@ export function OverallVarianceReport({ userRole }: OverallVarianceReportProps) 
       maximumFractionDigits: 0
     }).format(value);
 
+  const formatNumber = (value: number) => value.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
   const getStatusColor = (status: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
     switch (status) {
       case 'Match': return 'success';
