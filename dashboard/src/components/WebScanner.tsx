@@ -25,8 +25,10 @@ import {
   Speed,
   CloudUpload,
   Assignment,
+  Warning,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
+import PartialDamageDialog, { PartialDamageData } from '@/components/scanning/PartialDamageDialog'
 
 interface ScanData {
   id: string
@@ -153,6 +155,7 @@ export default function WebScanner({
   const [errors, setErrors] = useState<string[]>([])
   const [warnings, setWarnings] = useState<string[]>([])
   const [warnedBarcodes, setWarnedBarcodes] = useState<Set<string>>(new Set())
+  const [partialDamageDialogOpen, setPartialDamageDialogOpen] = useState(false)
   
   const inputRef = useRef<HTMLInputElement>(null)
   const sessionStartTime = useRef(Date.now())
@@ -177,9 +180,9 @@ export default function WebScanner({
   }, [scanQueue])
 
   const validateBarcode = (code: string): boolean => {
-    // Only allow 10-11 digit barcodes
-    if (!/^\d{10,11}$/.test(code)) {
-      addError(`Invalid barcode format: "${code}" (must be 10-11 digits)`)
+    // Only allow 10-12 digit barcodes
+    if (!/^\d{10,12}$/.test(code)) {
+      addError(`Invalid barcode format: "${code}" (must be 10-12 digits)`)
       return false
     }
     return true
@@ -293,6 +296,35 @@ export default function WebScanner({
     }
   }
 
+  const handlePartialDamageSave = async (data: PartialDamageData) => {
+    try {
+      // Save partial damage record via API
+      const response = await fetch('/api/partial-damage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          rackId,
+          auditSessionId,
+          scannerId
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || 'Failed to save partial damage record')
+      }
+
+      // Also add the scan to normal scanning queue
+      processScan(data.barcode, true) // Mark as manual entry
+      
+      addWarning(`Partial damage flagged for barcode: ${data.barcode}`)
+    } catch (error) {
+      addError(error instanceof Error ? error.message : 'Failed to save partial damage')
+      throw error // Re-throw to show in dialog
+    }
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
       {/* Scanner Input */}
@@ -306,6 +338,27 @@ export default function WebScanner({
                 <CloudUpload />
               </Badge>
             )}
+          </Box>
+
+          {/* Scanning Mode Buttons */}
+          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <Button
+              variant="contained"
+              size="small"
+              sx={{ minWidth: '120px' }}
+            >
+              Normal Scan
+            </Button>
+            <Button
+              variant="outlined"
+              color="warning"
+              size="small"
+              startIcon={<Warning />}
+              onClick={() => setPartialDamageDialogOpen(true)}
+              sx={{ minWidth: '140px' }}
+            >
+              Partial Damage
+            </Button>
           </Box>
           
           <TextField
@@ -405,6 +458,16 @@ export default function WebScanner({
           </Paper>
         </CardContent>
       </Card>
+
+      {/* Partial Damage Dialog */}
+      <PartialDamageDialog
+        open={partialDamageDialogOpen}
+        onClose={() => setPartialDamageDialogOpen(false)}
+        onSave={handlePartialDamageSave}
+        rackId={rackId}
+        sessionId={auditSessionId}
+        userId={scannerId}
+      />
     </Box>
   )
 }

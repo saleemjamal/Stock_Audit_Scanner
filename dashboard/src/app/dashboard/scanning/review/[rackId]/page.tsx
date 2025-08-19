@@ -42,6 +42,8 @@ import {
   Schedule,
   LocationOn,
   Search,
+  Warning,
+  PhotoCamera,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
@@ -53,6 +55,16 @@ interface Scan {
   manual_entry: boolean
   scanner_id: string
   rack_id: string
+}
+
+interface PartialDamage {
+  id: string
+  barcode: string
+  damage_type: string
+  severity: string
+  remarks: string
+  photo_count: number
+  unit_ratio: string
 }
 
 interface Rack {
@@ -80,6 +92,7 @@ export default function ReviewScansPage() {
   const [location, setLocation] = useState<Location | null>(null)
   const [scans, setScans] = useState<Scan[]>([])
   const [filteredScans, setFilteredScans] = useState<Scan[]>([])
+  const [partialDamages, setPartialDamages] = useState<PartialDamage[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<Set<string>>(new Set())
@@ -154,6 +167,9 @@ export default function ReviewScansPage() {
       // Load scans for this rack
       await loadScans()
       
+      // Load partial damages for this rack
+      await loadPartialDamages()
+      
     } catch (error: any) {
       console.error('Error loading review data:', error)
       setError(error.message || 'Failed to load review data')
@@ -176,6 +192,26 @@ export default function ReviewScansPage() {
       console.error('Error loading scans:', error)
       setError('Failed to load scans')
     }
+  }
+
+  const loadPartialDamages = async () => {
+    try {
+      const response = await fetch(`/api/partial-damage?sessionId=${rack?.audit_session_id}&rackId=${rackId}`)
+      const result = await response.json()
+      
+      if (result.success) {
+        setPartialDamages(result.data || [])
+      } else {
+        console.error('Failed to load partial damages:', result.error)
+      }
+    } catch (error: any) {
+      console.error('Error loading partial damages:', error)
+      // Don't set error state for partial damages as it's not critical
+    }
+  }
+
+  const getPartialDamageForBarcode = (barcode: string): PartialDamage | undefined => {
+    return partialDamages.find(pd => pd.barcode === barcode)
   }
 
   const handleDeleteClick = (scan: Scan) => {
@@ -336,6 +372,19 @@ export default function ReviewScansPage() {
                           />
                         </TableCell>
                       </TableRow>
+                      {partialDamages.length > 0 && (
+                        <TableRow>
+                          <TableCell><strong>Partial Damages:</strong></TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={partialDamages.length} 
+                              color="warning" 
+                              size="small"
+                              icon={<Warning />}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -392,49 +441,85 @@ export default function ReviewScansPage() {
                   </Paper>
                 ) : (
                   <List>
-                    {filteredScans.map((scan, index) => (
-                      <Box key={scan.id}>
-                        <ListItem
-                          sx={{ 
-                            bgcolor: index === 0 ? 'action.hover' : 'transparent',
-                            borderRadius: 1,
-                            mb: 0.5
-                          }}
-                        >
-                          <Box sx={{ mr: 2 }}>
-                            {scan.manual_entry ? (
-                              <Typography sx={{ fontSize: 20 }}>⌨️</Typography>
-                            ) : (
-                              <QrCode color="success" />
-                            )}
-                          </Box>
-                          <ListItemText
-                            primary={
-                              <Typography variant="body1" fontWeight="medium">
-                                {scan.barcode}
-                              </Typography>
-                            }
-                            secondary={formatDateTime(scan.created_at)}
-                          />
-                          <ListItemSecondaryAction>
-                            <IconButton
-                              edge="end"
-                              onClick={() => handleDeleteClick(scan)}
-                              disabled={deleting.has(scan.id)}
-                              sx={{ 
-                                bgcolor: 'error.light',
-                                color: 'error.contrastText',
-                                '&:hover': { bgcolor: 'error.main' },
-                                '&:disabled': { opacity: 0.5 }
-                              }}
-                            >
-                              <Typography sx={{ fontSize: 20 }}>🗑️</Typography>
-                            </IconButton>
-                          </ListItemSecondaryAction>
-                        </ListItem>
-                        {index < filteredScans.length - 1 && <Divider />}
-                      </Box>
-                    ))}
+                    {filteredScans.map((scan, index) => {
+                      const partialDamage = getPartialDamageForBarcode(scan.barcode)
+                      return (
+                        <Box key={scan.id}>
+                          <ListItem
+                            sx={{ 
+                              bgcolor: index === 0 ? 'action.hover' : 'transparent',
+                              borderRadius: 1,
+                              mb: 0.5,
+                              borderLeft: partialDamage ? '4px solid' : 'none',
+                              borderLeftColor: partialDamage ? 'warning.main' : 'transparent'
+                            }}
+                          >
+                            <Box sx={{ mr: 2 }}>
+                              {scan.manual_entry ? (
+                                <Typography sx={{ fontSize: 20 }}>⌨️</Typography>
+                              ) : (
+                                <QrCode color="success" />
+                              )}
+                            </Box>
+                            <ListItemText
+                              primary={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                  <Typography variant="body1" fontWeight="medium">
+                                    {scan.barcode}
+                                  </Typography>
+                                  {partialDamage && (
+                                    <Chip
+                                      label="Partial Damage"
+                                      color="warning"
+                                      size="small"
+                                      icon={<Warning />}
+                                      title={`${partialDamage.damage_type} - ${partialDamage.severity}`}
+                                    />
+                                  )}
+                                  {partialDamage && partialDamage.photo_count > 0 && (
+                                    <Chip
+                                      label={`${partialDamage.photo_count} photos`}
+                                      color="info"
+                                      size="small"
+                                      icon={<PhotoCamera />}
+                                    />
+                                  )}
+                                </Box>
+                              }
+                              secondary={
+                                <Box>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {formatDateTime(scan.created_at)}
+                                  </Typography>
+                                  {partialDamage && (
+                                    <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
+                                      {partialDamage.remarks}
+                                      {partialDamage.unit_ratio !== 'N/A' && ` (${partialDamage.unit_ratio})`}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              }
+                            />
+                            <ListItemSecondaryAction>
+                              <IconButton
+                                edge="end"
+                                onClick={() => handleDeleteClick(scan)}
+                                disabled={deleting.has(scan.id)}
+                                sx={{ 
+                                  bgcolor: 'error.light',
+                                  color: 'error.contrastText',
+                                  '&:hover': { bgcolor: 'error.main' },
+                                  '&:disabled': { opacity: 0.5 }
+                                }}
+                              >
+                                <Typography sx={{ fontSize: 20 }}>🗑️</Typography>
+                              </IconButton>
+                            </ListItemSecondaryAction>
+                          </ListItem>
+                          {index < filteredScans.length - 1 && <Divider />}
+                        </Box>
+                      )
+                    })}
                   </List>
                 )}
               </CardContent>

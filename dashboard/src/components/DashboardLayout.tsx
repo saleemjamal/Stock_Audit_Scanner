@@ -46,6 +46,7 @@ import {
   Warning,
   Gavel,
   Add,
+  TrendingUp,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -167,6 +168,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       baseItems.push(
         { text: 'Approvals', icon: <CheckCircle />, href: '/dashboard/approvals' },
         { text: 'Reports', icon: <Assessment />, href: '/dashboard/reports' },
+        { text: 'Brand Variance', icon: <TrendingUp />, href: '/dashboard/variance' },
       )
     }
 

@@ -9,11 +9,13 @@ import KPIOverview from '@/components/KPIOverview'
 import RackMap from '@/components/RackMap'
 import ScannerStatus from '@/components/ScannerStatus'
 import PendingApprovals from '@/components/PendingApprovals'
+import { BrandVarianceLive } from '@/components/dashboard/BrandVarianceLive'
 
 export default function DashboardPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [activeSessionId, setActiveSessionId] = useState<string | undefined>(undefined)
   const supabase = createClient()
 
   useEffect(() => {
@@ -78,6 +80,15 @@ export default function DashboardPage() {
       await enforceSessionSingleton()
 
       setCurrentUser(userProfile)
+
+      // Get active session ID for variance widget
+      const { data: activeSession } = await supabase
+        .from('audit_sessions')
+        .select('id')
+        .eq('status', 'active')
+        .single()
+
+      setActiveSessionId(activeSession?.id)
     } catch (error) {
       console.error('Auth check error:', error)
       router.push('/auth/login')
@@ -113,18 +124,30 @@ export default function DashboardPage() {
         </Box>
 
         <Grid container spacing={3}>
-          {/* Action Row - Scanner Status and Pending Approvals */}
-          <Grid item xs={12} lg={6}>
+          {/* Action Row - Scanner Status, Pending Approvals, and Brand Variance */}
+          <Grid item xs={12} lg={4}>
             <Suspense fallback={<CircularProgress />}>
               <ScannerStatus />
             </Suspense>
           </Grid>
           
-          <Grid item xs={12} lg={6}>
+          <Grid item xs={12} lg={4}>
             <Suspense fallback={<CircularProgress />}>
               <PendingApprovals />
             </Suspense>
           </Grid>
+
+          {/* Brand Variance - Only for Supervisor and Super User */}
+          {(currentUser?.role === 'supervisor' || currentUser?.role === 'superuser') && (
+            <Grid item xs={12} lg={4}>
+              <Suspense fallback={<CircularProgress />}>
+                <BrandVarianceLive 
+                  sessionId={activeSessionId} 
+                  userRole={currentUser?.role || ''} 
+                />
+              </Suspense>
+            </Grid>
+          )}
 
           {/* Rack Map - Full Width Below */}
           <Grid item xs={12}>

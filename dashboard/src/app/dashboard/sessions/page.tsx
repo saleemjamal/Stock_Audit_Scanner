@@ -44,6 +44,8 @@ import {
   Warning,
   AssignmentTurnedIn,
   ReportProblem,
+  TrendingUp,
+  TrendingDown,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -79,6 +81,13 @@ interface PendingValidation {
   assignedRacks: number
   canClose: boolean
   warnings: string[]
+  brandVariance?: {
+    hasInventory: boolean
+    totalVarianceValue: number
+    topBrand: string
+    topBrandVariance: number
+    brandsWithVariance: number
+  }
 }
 
 interface UserProfile {
@@ -372,12 +381,13 @@ export default function AuditSessionsPage() {
 
   const validateSessionClosure = async (sessionId: string): Promise<PendingValidation> => {
     try {
-      // Check all pending approval types for this session
+      // Check all pending approval types for this session and get variance data
       const [
         { data: pendingRacks },
         { data: pendingDamage },
         { data: pendingAddOns },
-        { data: assignedRacks }
+        { data: assignedRacks },
+        { data: sessionInfo }
       ] = await Promise.all([
         supabase
           .from('racks')
@@ -398,13 +408,75 @@ export default function AuditSessionsPage() {
           .from('racks')
           .select('id')
           .eq('audit_session_id', sessionId)
-          .eq('status', 'assigned')
+          .eq('status', 'assigned'),
+        supabase
+          .from('audit_sessions')
+          .select('location_id')
+          .eq('id', sessionId)
+          .single()
       ])
 
       const rackCount = pendingRacks?.length || 0
       const damageCount = pendingDamage?.length || 0
       const addOnCount = pendingAddOns?.length || 0
       const assignedCount = assignedRacks?.length || 0
+
+      // Check for inventory and variance data
+      let brandVariance = undefined
+      if (sessionInfo?.location_id) {
+        try {
+          // Check if inventory exists for this location
+          const { count: inventoryCount } = await supabase
+            .from('inventory_items')
+            .select('*', { count: 'exact', head: true })
+            .eq('location_id', sessionInfo.location_id)
+
+          if (inventoryCount && inventoryCount > 0) {
+            // Get variance summary
+            const { data: varianceData } = await supabase
+              .rpc('get_live_brand_variance', { session_id: sessionId })
+
+            if (varianceData && varianceData.length > 0) {
+              const totalVarianceValue = varianceData.reduce((sum: number, item: any) => 
+                sum + (item.variance_value || 0), 0)
+              
+              const brandsWithVariance = varianceData.filter((item: any) => 
+                Math.abs(item.variance_value) > 100).length // Brands with >₹100 variance
+              
+              // Find brand with highest absolute variance
+              const topVarianceBrand = varianceData.reduce((max: any, item: any) => 
+                Math.abs(item.variance_value) > Math.abs(max?.variance_value || 0) ? item : max, null)
+
+              brandVariance = {
+                hasInventory: true,
+                totalVarianceValue: totalVarianceValue,
+                topBrand: topVarianceBrand?.brand || '',
+                topBrandVariance: topVarianceBrand?.variance_value || 0,
+                brandsWithVariance: brandsWithVariance
+              }
+            } else {
+              brandVariance = {
+                hasInventory: true,
+                totalVarianceValue: 0,
+                topBrand: '',
+                topBrandVariance: 0,
+                brandsWithVariance: 0
+              }
+            }
+          } else {
+            brandVariance = {
+              hasInventory: false,
+              totalVarianceValue: 0,
+              topBrand: '',
+              topBrandVariance: 0,
+              brandsWithVariance: 0
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching variance data:', error)
+          // Continue without variance data
+        }
+      }
 
       const warnings: string[] = []
       
@@ -427,7 +499,8 @@ export default function AuditSessionsPage() {
         addOnItems: addOnCount,
         assignedRacks: assignedCount,
         canClose: warnings.length === 0,
-        warnings
+        warnings,
+        brandVariance
       }
     } catch (error) {
       console.error('Error validating session closure:', error)
@@ -447,31 +520,66 @@ export default function AuditSessionsPage() {
 
     setProcessing(true)
     try {
-      // Get current max rack number
-      const { data: existingRacks } = await supabase
+      // Refresh session data to avoid stale cache issues
+      await loadSessions()
+      // Get ALL existing rack numbers to avoid duplicates
+      const { data: existingRacks, error: rackQueryError } = await supabase
         .from('racks')
         .select('rack_number')
         .eq('audit_session_id', selectedSession.id)
         .order('rack_number', { ascending: false })
-        .limit(1)
 
-      const startNumber = existingRacks?.length ? 
-        parseInt(existingRacks[0].rack_number) + 1 : 
-        selectedSession.total_rack_count + 1
+      if (rackQueryError) {
+        console.error('Error querying existing racks:', rackQueryError)
+        throw new Error('Failed to check existing racks')
+      }
 
-      // Generate new racks
-      const newRacks = Array.from({ length: additionalRacks }, (_, i) => ({
-        audit_session_id: selectedSession.id,
-        location_id: selectedSession.location_id,
-        rack_number: String(startNumber + i),
-        status: 'available',
-      }))
+      console.log('Existing racks found:', existingRacks)
+
+      let startNumber = 1
+      if (existingRacks && existingRacks.length > 0) {
+        // Start from the next number after the highest existing rack
+        const maxRackNumber = Math.max(...existingRacks.map(r => parseInt(r.rack_number) || 0))
+        startNumber = maxRackNumber + 1
+        console.log(`Found ${existingRacks.length} existing racks, max rack number: ${maxRackNumber}, starting from: ${startNumber}`)
+      } else {
+        // No existing racks, start from 1
+        startNumber = 1
+        console.log('No existing racks found, starting from: 1')
+      }
+
+      // Generate new racks with safety check
+      const existingNumbers = new Set((existingRacks || []).map(r => r.rack_number))
+      const newRacks = Array.from({ length: additionalRacks }, (_, i) => {
+        const rackNumber = String(startNumber + i)
+        if (existingNumbers.has(rackNumber)) {
+          throw new Error(`Conflict detected: Rack ${rackNumber} already exists. Please refresh and try again.`)
+        }
+        return {
+          audit_session_id: selectedSession.id,
+          location_id: selectedSession.location_id,
+          rack_number: rackNumber,
+          status: 'available',
+        }
+      })
+
+      console.log(`Adding racks ${startNumber} to ${startNumber + additionalRacks - 1} for session ${selectedSession.id}`)
+      console.log('New racks to be inserted:', newRacks.map(r => r.rack_number))
 
       const { error: racksError } = await supabase
         .from('racks')
         .insert(newRacks)
 
-      if (racksError) throw racksError
+      if (racksError) {
+        console.error('Racks insert error:', racksError)
+        if (racksError.code === '23505') {
+          // Extract the conflicting rack number from the error details
+          const match = racksError.details?.match(/rack_number\)=\([^,]+, ([^)]+)\)/)
+          const conflictingRack = match ? match[1] : 'unknown'
+          throw new Error(`Rack ${conflictingRack} already exists. Please refresh the page and try again.`)
+        }
+        throw racksError
+      }
 
       // Update total rack count
       const { error: updateError } = await supabase
@@ -987,6 +1095,118 @@ export default function AuditSessionsPage() {
                     </CardContent>
                   </Card>
                 </Grid>
+
+                {/* Brand Variance Summary Card */}
+                {closeSessionDialog.validation?.brandVariance && (
+                  <Grid item xs={12}>
+                    <Card variant="outlined" sx={{ 
+                      backgroundColor: closeSessionDialog.validation.brandVariance.hasInventory 
+                        ? 'action.hover' 
+                        : 'grey.50',
+                      border: closeSessionDialog.validation.brandVariance.hasInventory
+                        ? '1px solid'
+                        : '1px dashed',
+                      borderColor: closeSessionDialog.validation.brandVariance.hasInventory
+                        ? 'primary.main'
+                        : 'grey.400'
+                    }}>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                          {closeSessionDialog.validation.brandVariance.totalVarianceValue >= 0 ? (
+                            <TrendingUp color="success" />
+                          ) : (
+                            <TrendingDown color="error" />
+                          )}
+                          <Typography variant="subtitle2">
+                            Brand Variance Summary
+                          </Typography>
+                        </Box>
+                        
+                        {closeSessionDialog.validation.brandVariance.hasInventory ? (
+                          <Box>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                              <Typography variant="h4" color={
+                                closeSessionDialog.validation.brandVariance.totalVarianceValue >= 0 
+                                  ? 'success.main' 
+                                  : 'error.main'
+                              }>
+                                {new Intl.NumberFormat('en-IN', { 
+                                  style: 'currency', 
+                                  currency: 'INR',
+                                  maximumFractionDigits: 0
+                                }).format(closeSessionDialog.validation.brandVariance.totalVarianceValue)}
+                              </Typography>
+                              <Box textAlign="right">
+                                <Typography variant="body2" color="text.secondary">
+                                  Total Variance
+                                </Typography>
+                                {closeSessionDialog.validation.brandVariance.brandsWithVariance > 0 && (
+                                  <Typography variant="caption" color="warning.main">
+                                    {closeSessionDialog.validation.brandVariance.brandsWithVariance} brands with significant variance
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+                            
+                            {closeSessionDialog.validation.brandVariance.topBrand && (
+                              <Box sx={{ 
+                                p: 1.5, 
+                                backgroundColor: 'rgba(0,0,0,0.03)', 
+                                borderRadius: 1,
+                                mb: 2
+                              }}>
+                                <Typography variant="caption" color="text.secondary" gutterBottom display="block">
+                                  Highest Variance Brand
+                                </Typography>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="body2" fontWeight="bold">
+                                    {closeSessionDialog.validation.brandVariance.topBrand}
+                                  </Typography>
+                                  <Typography 
+                                    variant="body2" 
+                                    fontWeight="bold"
+                                    color={closeSessionDialog.validation.brandVariance.topBrandVariance >= 0 ? 'success.main' : 'error.main'}
+                                  >
+                                    {new Intl.NumberFormat('en-IN', { 
+                                      style: 'currency', 
+                                      currency: 'INR',
+                                      maximumFractionDigits: 0
+                                    }).format(closeSessionDialog.validation.brandVariance.topBrandVariance)}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )}
+                            
+                            <Typography variant="body2" color="text.secondary">
+                              💡 <strong>Tip:</strong> Visit{' '}
+                              <Button
+                                variant="text"
+                                size="small"
+                                onClick={() => {
+                                  handleCloseSessionCancel()
+                                  router.push('/dashboard/variance')
+                                }}
+                                sx={{ textDecoration: 'underline', p: 0, minWidth: 'unset' }}
+                              >
+                                Brand Variance
+                              </Button>
+                              {' '}for detailed analysis and export options.
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Box>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                              No inventory data available for variance analysis.
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Import expected inventory to enable variance tracking for future sessions.
+                            </Typography>
+                          </Box>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
               </Grid>
 
               {closeSessionDialog.validation.warnings.length > 0 && (

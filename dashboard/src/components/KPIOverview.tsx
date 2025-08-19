@@ -139,12 +139,18 @@ export default function KPIOverview() {
         `)
         .eq('audit_session_id', activeSession.id)
       
-      // Get scan count for throughput calculation from the active session
+      // Get scan count for throughput calculation from the active session (last 24 hours)
       const { data: scans } = await supabase
         .from('scans')
         .select('created_at, scanner_id')
         .eq('audit_session_id', activeSession.id)
         .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Last 24 hours
+      
+      // Get total scan count for the entire audit session
+      const { count: totalScansCount } = await supabase
+        .from('scans')
+        .select('*', { count: 'exact', head: true })
+        .eq('audit_session_id', activeSession.id)
       
       // Get active scanners (who have scanned in last 2 hours) from the active session
       const { data: activeUsers } = await supabase
@@ -168,8 +174,10 @@ export default function KPIOverview() {
         const firstPassYield = accuracyRate
         
         // Throughput: Scans per hour (last 24 hours)
-        const totalScans = scans.length
-        const throughputPerHour = totalScans / 24
+        const throughputPerHour = scans ? scans.length / 24 : 0
+        
+        // Total scans for the entire audit session
+        const totalScans = totalScansCount || 0
         
         // Average rack completion time
         const completedRacksWithTimes = racks.filter(r => 
@@ -268,6 +276,14 @@ export default function KPIOverview() {
       progress: (stats.activeScannersCount / 8) * 100, // Assuming 8 is good capacity
     },
     {
+      title: 'Total Items Scanned',
+      value: stats.totalScans.toLocaleString(),
+      subtitle: 'Items',
+      icon: <Speed />,
+      color: 'info.main',
+      progress: Math.min((stats.totalScans / 1000) * 100, 100), // Assuming 1000 is a good target
+    },
+    {
       title: 'Quality Rate',
       value: `${stats.accuracyRate.toFixed(0)}%`,
       subtitle: `${stats.approvedRacks}/${stats.approvedRacks + stats.rejectedRacks} Approved`,
@@ -309,9 +325,9 @@ export default function KPIOverview() {
               </Button>
             )}
           </Box>
-          <Grid container spacing={3} alignItems="center">
+          <Grid container spacing={2} alignItems="center">
             {streamlinedKPIs.map((kpi, index) => (
-              <Grid item xs={6} md={3} key={index}>
+              <Grid item xs={12} sm={6} md={2.4} key={index}>
               <Box 
                 sx={{ 
                   textAlign: 'center',

@@ -29,6 +29,13 @@ import {
   FormControlLabel,
   TextField,
   InputAdornment,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  ImageList,
+  ImageListItem,
+  IconButton,
 } from '@mui/material'
 import {
   Assessment,
@@ -43,10 +50,16 @@ import {
   Warning,
   BrokenImage,
   Add,
+  Visibility,
+  Close,
+  PhotoCamera,
+  Inventory,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
+import { BrandVarianceReport } from '@/components/reports/BrandVarianceReport'
+import { OverallVarianceReport } from '@/components/reports/OverallVarianceReport'
 
 interface CompletedAuditSession {
   id: string
@@ -165,6 +178,21 @@ export default function ReportsPage() {
   const [selectedAddOnSessionId, setSelectedAddOnSessionId] = useState<string>('')
   const [loadingAddOnReports, setLoadingAddOnReports] = useState<boolean>(false)
   const [addOnStatusFilter, setAddOnStatusFilter] = useState<string>('all')
+  
+  // State for partial damage reports
+  const [partialDamageReports, setPartialDamageReports] = useState<any[]>([])
+  const [selectedPartialDamageSessionId, setSelectedPartialDamageSessionId] = useState<string>('')
+  const [loadingPartialDamageReports, setLoadingPartialDamageReports] = useState<boolean>(false)
+  const [partialDamageSeverityFilter, setPartialDamageSeverityFilter] = useState<string>('all')
+  
+  // State for photo viewing modal
+  const [photoModalOpen, setPhotoModalOpen] = useState<boolean>(false)
+  const [selectedPartialDamagePhotos, setSelectedPartialDamagePhotos] = useState<{
+    barcode: string;
+    damageType: string;
+    severity: string;
+    photoUrls: string[];
+  } | null>(null)
   
   const supabase = createClient()
 
@@ -704,9 +732,94 @@ export default function ReportsPage() {
     }
   }
 
-  // Load sessions when switching to Racks, Damages, or Add-Ons tab
+  // Export Partial Damage CSV
+  const exportPartialDamageCSV = async () => {
+    setExporting(true)
+    try {
+      const session = sessionsForReports.find(s => s.session_id === selectedPartialDamageSessionId)
+      
+      const filteredReports = partialDamageReports.filter(report => 
+        partialDamageSeverityFilter === 'all' || report.severity === partialDamageSeverityFilter
+      )
+
+      // Create CSV content
+      const csvLines = []
+      
+      // Header info
+      csvLines.push(`Partial Damage Report`)
+      csvLines.push(`Session: ${session?.shortname} - ${session?.location_name}`)
+      csvLines.push(`Generated: ${new Date().toLocaleString()}`)
+      csvLines.push(`Severity Filter: ${partialDamageSeverityFilter === 'all' ? 'All Severities' : partialDamageSeverityFilter.charAt(0).toUpperCase() + partialDamageSeverityFilter.slice(1)}`)
+      csvLines.push(`Total Items: ${filteredReports.length}`)
+      csvLines.push('')
+      
+      // Summary stats
+      const severeCount = filteredReports.filter(r => r.severity === 'severe').length
+      const moderateCount = filteredReports.filter(r => r.severity === 'moderate').length  
+      const minorCount = filteredReports.filter(r => r.severity === 'minor').length
+
+      csvLines.push(`SUMMARY BY SEVERITY:`)
+      csvLines.push(`Severe: ${severeCount}`)
+      csvLines.push(`Moderate: ${moderateCount}`)
+      csvLines.push(`Minor: ${minorCount}`)
+      csvLines.push('')
+
+      // Summary by damage type
+      const typeGroups = filteredReports.reduce((acc, report) => {
+        const type = report.damage_type || 'unknown'
+        acc[type] = (acc[type] || 0) + 1
+        return acc
+      }, {} as Record<string, number>)
+
+      csvLines.push(`SUMMARY BY TYPE:`)
+      Object.entries(typeGroups).forEach(([type, count]) => {
+        csvLines.push(`${type}: ${count}`)
+      })
+      csvLines.push('')
+
+      // Column headers
+      csvLines.push('Barcode,Damage Type,Severity,Units Affected,Remarks,Photos,Reported By,Date')
+      
+      // Data rows
+      filteredReports.forEach(report => {
+        const row = [
+          report.barcode || '',
+          report.damage_type || '',
+          report.severity || '',
+          report.unit_ratio || '',
+          `"${(report.remarks || '').replace(/"/g, '""')}"`, // Escape quotes
+          report.photo_count || 0,
+          report.created_by_name || '',
+          new Date(report.created_at).toLocaleDateString()
+        ]
+        csvLines.push(row.join(','))
+      })
+
+      const csvContent = csvLines.join('\n')
+      const filename = `partial-damage-report-${session?.shortname || selectedPartialDamageSessionId}-${new Date().toISOString().split('T')[0]}.csv`
+
+      // Download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', filename)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+    } catch (error) {
+      console.error('Error exporting partial damage CSV:', error)
+      alert('Failed to export partial damage report')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // Load sessions when switching to Racks, Damages, Add-Ons, Partial Damages, or Variance tabs
   useEffect(() => {
-    if (activeTab === 1 || activeTab === 2 || activeTab === 3) {
+    if (activeTab === 1 || activeTab === 2 || activeTab === 3 || activeTab === 4 || activeTab === 5 || activeTab === 6) {
       loadSessionsForReports()
     }
   }, [activeTab])
@@ -732,6 +845,13 @@ export default function ReportsPage() {
     }
   }, [selectedAddOnSessionId])
 
+  // Load partial damage reports when session changes
+  useEffect(() => {
+    if (selectedPartialDamageSessionId) {
+      loadPartialDamageReports(selectedPartialDamageSessionId)
+    }
+  }, [selectedPartialDamageSessionId])
+
 
   // Load add-on reports function
   const loadAddOnReports = async (sessionId: string) => {
@@ -753,6 +873,27 @@ export default function ReportsPage() {
       console.error('Error loading add-on reports:', error)
     } finally {
       setLoadingAddOnReports(false)
+    }
+  }
+
+  // Load partial damage reports function
+  const loadPartialDamageReports = async (sessionId: string) => {
+    setLoadingPartialDamageReports(true)
+    try {
+      const response = await fetch(`/api/partial-damage?sessionId=${sessionId}`)
+      const result = await response.json()
+      
+      if (result.success) {
+        setPartialDamageReports(result.data || [])
+      } else {
+        console.error('Failed to load partial damage reports:', result.error)
+        setPartialDamageReports([])
+      }
+    } catch (error) {
+      console.error('Error loading partial damage reports:', error)
+      setPartialDamageReports([])
+    } finally {
+      setLoadingPartialDamageReports(false)
     }
   }
 
@@ -800,6 +941,23 @@ export default function ReportsPage() {
       case 'removed_from_stock': return 'secondary'
       default: return 'default'
     }
+  }
+
+  // Handle opening photo modal
+  const handleViewPhotos = (report: any) => {
+    setSelectedPartialDamagePhotos({
+      barcode: report.barcode,
+      damageType: report.damage_type,
+      severity: report.severity,
+      photoUrls: report.photo_urls || []
+    })
+    setPhotoModalOpen(true)
+  }
+
+  // Handle closing photo modal
+  const handleClosePhotoModal = () => {
+    setPhotoModalOpen(false)
+    setSelectedPartialDamagePhotos(null)
   }
 
 
@@ -857,6 +1015,29 @@ export default function ReportsPage() {
               label="Add-Ons" 
               icon={<Add />} 
               iconPosition="start"
+            />
+            <Tab 
+              label="Partial Damages" 
+              icon={<Warning />} 
+              iconPosition="start"
+            />
+            <Tab 
+              label="Brand Variance" 
+              icon={<Assessment />} 
+              iconPosition="start"
+              disabled={userProfile?.role !== 'supervisor' && userProfile?.role !== 'superuser'}
+              sx={{ 
+                display: (userProfile?.role !== 'supervisor' && userProfile?.role !== 'superuser') ? 'none' : 'flex' 
+              }}
+            />
+            <Tab 
+              label="Overall Variance" 
+              icon={<Inventory />} 
+              iconPosition="start"
+              disabled={userProfile?.role !== 'supervisor' && userProfile?.role !== 'superuser'}
+              sx={{ 
+                display: (userProfile?.role !== 'supervisor' && userProfile?.role !== 'superuser') ? 'none' : 'flex' 
+              }}
             />
           </Tabs>
         </Box>
@@ -1641,6 +1822,290 @@ export default function ReportsPage() {
             )}
           </>
         )}
+
+        {/* Tab Panel 5: Partial Damages */}
+        {activeTab === 4 && (
+          <>
+            {/* Session Selection */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Warning />
+                  Partial Damage Reports
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Select an audit session to view partial damage flags with severity filtering.
+                </Typography>
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  <FormControl sx={{ minWidth: 300 }}>
+                    <InputLabel>Select Audit Session</InputLabel>
+                    <Select
+                      value={selectedPartialDamageSessionId}
+                      onChange={(e) => setSelectedPartialDamageSessionId(e.target.value)}
+                      label="Select Audit Session"
+                    >
+                      {sessionsForReports.map((session) => (
+                        <MenuItem key={session.session_id} value={session.session_id}>
+                          <Box>
+                            <Typography variant="body2" fontWeight="bold">
+                              {session.shortname} - {session.location_name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {session.status === 'active' ? '🔴 Active' : '✅ Completed'} • 
+                              {session.total_racks} racks • {session.total_scans} scans
+                            </Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <FormControl sx={{ minWidth: 120 }}>
+                    <InputLabel>Severity Filter</InputLabel>
+                    <Select
+                      value={partialDamageSeverityFilter}
+                      onChange={(e) => setPartialDamageSeverityFilter(e.target.value)}
+                      label="Severity Filter"
+                    >
+                      <MenuItem value="all">All</MenuItem>
+                      <MenuItem value="severe">Severe</MenuItem>
+                      <MenuItem value="moderate">Moderate</MenuItem>
+                      <MenuItem value="minor">Minor</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
+              </CardContent>
+            </Card>
+
+            {/* Partial Damage Reports Table */}
+            {selectedPartialDamageSessionId && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Partial Damage Flags ({partialDamageReports.filter(report => 
+                      partialDamageSeverityFilter === 'all' || report.severity === partialDamageSeverityFilter
+                    ).length} of {partialDamageReports.length})
+                  </Typography>
+                  
+                  {/* Export Button */}
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                    <Button
+                      variant="contained"
+                      startIcon={<FileDownload />}
+                      onClick={() => exportPartialDamageCSV()}
+                      disabled={loadingPartialDamageReports || partialDamageReports.length === 0}
+                    >
+                      Export CSV
+                    </Button>
+                  </Box>
+
+                  {loadingPartialDamageReports ? (
+                    <Box display="flex" justifyContent="center" p={4}>
+                      <CircularProgress />
+                    </Box>
+                  ) : (
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Barcode</TableCell>
+                            <TableCell>Damage Type</TableCell>
+                            <TableCell>Severity</TableCell>
+                            <TableCell>Units</TableCell>
+                            <TableCell>Remarks</TableCell>
+                            <TableCell>Photos</TableCell>
+                            <TableCell>Reporter</TableCell>
+                            <TableCell>Date</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {partialDamageReports.filter(report => 
+                            partialDamageSeverityFilter === 'all' || report.severity === partialDamageSeverityFilter
+                          ).length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={8} align="center">
+                                <Typography color="text.secondary" sx={{ py: 4 }}>
+                                  No partial damage flags found
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            partialDamageReports
+                              .filter(report => partialDamageSeverityFilter === 'all' || report.severity === partialDamageSeverityFilter)
+                              .map((report) => (
+                                <TableRow key={report.id} hover>
+                                  <TableCell>
+                                    <Typography variant="body2" fontFamily="monospace">
+                                      {report.barcode}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip 
+                                      label={report.damage_type.replace('_', ' ')} 
+                                      size="small" 
+                                      variant="outlined"
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={report.severity.toUpperCase()}
+                                      size="small"
+                                      color={
+                                        report.severity === 'severe' ? 'error' :
+                                        report.severity === 'moderate' ? 'warning' : 'info'
+                                      }
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {report.unit_ratio || 'N/A'}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell sx={{ maxWidth: 200 }}>
+                                    <Typography 
+                                      variant="body2" 
+                                      sx={{ 
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                      title={report.remarks} // Show full text on hover
+                                    >
+                                      {report.remarks && report.remarks.length > 50 
+                                        ? `${report.remarks.substring(0, 50)}...` 
+                                        : report.remarks || 'No remarks'
+                                      }
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    {report.photo_count > 0 ? (
+                                      <Button
+                                        size="small"
+                                        variant="outlined"
+                                        startIcon={<Visibility />}
+                                        onClick={() => handleViewPhotos(report)}
+                                      >
+                                        {report.photo_count} {report.photo_count === 1 ? 'photo' : 'photos'}
+                                      </Button>
+                                    ) : (
+                                      <Typography variant="body2" color="text.secondary">
+                                        No photos
+                                      </Typography>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {report.created_by_name}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {new Date(report.created_at).toLocaleDateString()}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {new Date(report.created_at).toLocaleTimeString()}
+                                    </Typography>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Tab Panel 5: Brand Variance - Only for Supervisor and Super User */}
+        {(userProfile?.role === 'supervisor' || userProfile?.role === 'superuser') && activeTab === 5 && (
+          <BrandVarianceReport userRole={userProfile?.role || ''} />
+        )}
+
+        {/* Tab Panel 6: Overall Variance - Only for Supervisor and Super User */}
+        {(userProfile?.role === 'supervisor' || userProfile?.role === 'superuser') && activeTab === 6 && (
+          <OverallVarianceReport userRole={userProfile?.role || ''} />
+        )}
+
+        {/* Photo Viewing Modal */}
+        <Dialog 
+          open={photoModalOpen} 
+          onClose={handleClosePhotoModal}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box>
+                <Typography variant="h6">
+                  Partial Damage Photos
+                </Typography>
+                {selectedPartialDamagePhotos && (
+                  <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Chip 
+                      icon={<PhotoCamera />}
+                      label={selectedPartialDamagePhotos.barcode} 
+                      size="small" 
+                      variant="outlined"
+                    />
+                    <Chip 
+                      label={selectedPartialDamagePhotos.damageType.replace('_', ' ')} 
+                      size="small" 
+                      variant="outlined"
+                    />
+                    <Chip
+                      label={selectedPartialDamagePhotos.severity.toUpperCase()}
+                      size="small"
+                      color={
+                        selectedPartialDamagePhotos.severity === 'severe' ? 'error' :
+                        selectedPartialDamagePhotos.severity === 'moderate' ? 'warning' : 'info'
+                      }
+                    />
+                  </Box>
+                )}
+              </Box>
+              <IconButton onClick={handleClosePhotoModal}>
+                <Close />
+              </IconButton>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            {selectedPartialDamagePhotos?.photoUrls && selectedPartialDamagePhotos.photoUrls.length > 0 ? (
+              <ImageList cols={2} rowHeight={200} gap={8}>
+                {selectedPartialDamagePhotos.photoUrls.map((url, index) => (
+                  <ImageListItem key={index}>
+                    <img
+                      src={url}
+                      alt={`Partial damage photo ${index + 1}`}
+                      loading="lazy"
+                      style={{ 
+                        cursor: 'pointer',
+                        objectFit: 'cover',
+                        borderRadius: '8px',
+                        transition: 'transform 0.2s',
+                      }}
+                      onClick={() => window.open(url, '_blank')}
+                      onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                      onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                    />
+                  </ImageListItem>
+                ))}
+              </ImageList>
+            ) : (
+              <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                No photos available
+              </Typography>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleClosePhotoModal}>
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Container>
     </DashboardLayout>
   )
