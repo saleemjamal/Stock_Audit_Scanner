@@ -20,17 +20,22 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [mode, setMode] = useState<ThemeMode>('light')
+  const [isInitialized, setIsInitialized] = useState(false)
 
   useEffect(() => {
-    // Load theme preference from localStorage
+    // Load theme preference from localStorage - prioritize user choice
     const savedTheme = localStorage.getItem('theme-mode') as ThemeMode
-    if (savedTheme) {
+    if (savedTheme && (savedTheme === 'light' || savedTheme === 'dark')) {
       setMode(savedTheme)
     } else {
-      // Auto-detect system preference
+      // Only auto-detect system preference if no saved preference exists
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      setMode(prefersDark ? 'dark' : 'light')
+      const systemMode = prefersDark ? 'dark' : 'light'
+      setMode(systemMode)
+      // Save the detected preference so it's consistent next time
+      localStorage.setItem('theme-mode', systemMode)
     }
+    setIsInitialized(true)
   }, [])
 
   const toggleTheme = () => {
@@ -45,6 +50,11 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }
 
   const theme = mode === 'light' ? lightTheme : darkTheme
+
+  // Don't render until theme is properly initialized to prevent flash
+  if (!isInitialized) {
+    return null
+  }
 
   return (
     <ThemeContext.Provider value={{ mode, toggleTheme, setTheme }}>

@@ -30,31 +30,31 @@ const LIGHT_COLORS = {
 } as const
 
 const DARK_COLORS = {
-  // MUI default dark palette
-  PRIMARY: '#90caf9',
-  PRIMARY_LIGHT: '#e3f2fd',
-  PRIMARY_DARK: '#42a5f5',
+  // MUI default dark palette - keeping primary colors from light theme for consistency
+  PRIMARY: '#1976d2',
+  PRIMARY_LIGHT: '#42a5f5',
+  PRIMARY_DARK: '#1565c0',
   
-  // Secondary and accent colors
-  SECONDARY: '#f48fb1',
-  SUCCESS: '#66bb6a',
-  WARNING: '#ffa726',
-  ERROR: '#f44336',
-  INFO: '#29b6f6',
+  // Secondary and accent colors - keeping from light theme for consistency
+  SECONDARY: '#dc004e',
+  SUCCESS: '#2e7d32',
+  WARNING: '#ed6c02',
+  ERROR: '#d32f2f',
+  INFO: '#0288d1',
   
-  // Background and surfaces
-  BACKGROUND: '#121212',
-  SURFACE: '#1e1e1e',
-  SURFACE_VARIANT: '#2d2d2d',
+  // Background and surfaces - lighter, more readable dark theme
+  BACKGROUND: '#1a1a1a',
+  SURFACE: '#2d2d2d',
+  SURFACE_VARIANT: '#404040',
   
-  // Text colors
+  // Text colors - better contrast
   TEXT_PRIMARY: '#ffffff',
-  TEXT_SECONDARY: '#aaaaaa',
+  TEXT_SECONDARY: '#b3b3b3',
   TEXT_MUTED: '#888888',
   
-  // Borders and dividers
-  BORDER: '#333333',
-  DIVIDER: '#333333',
+  // Borders and dividers - lighter for better visibility
+  BORDER: '#404040',
+  DIVIDER: '#404040',
 } as const
 
 // Function to create theme with specific color palette
