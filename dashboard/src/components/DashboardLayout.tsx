@@ -49,10 +49,13 @@ import {
   TrendingUp,
   DarkMode,
   LightMode,
+  Devices,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { useTheme } from '@/contexts/ThemeContext'
+import { deviceDetection } from '@/lib/deviceDetection'
+import { MultiDeviceWarning } from './MultiDeviceWarning'
 
 const drawerWidth = 240
 const miniDrawerWidth = 60
@@ -69,6 +72,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [adminOpen, setAdminOpen] = useState(false)
   const [damageOpen, setDamageOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [multiDeviceWarning, setMultiDeviceWarning] = useState<{
+    show: boolean
+    otherDeviceInfo: string
+  }>({ show: false, otherDeviceInfo: '' })
   const router = useRouter()
   const supabase = createClient()
   const { mode, toggleTheme } = useTheme()
@@ -103,9 +110,41 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           .single()
         
         setCurrentUser(userProfile)
+        
+        // Set up device detection after user is loaded
+        if (userProfile?.email) {
+          setupDeviceDetection(userProfile.email)
+        }
       }
     } catch (error) {
       console.error('Error loading user profile:', error)
+    }
+  }
+
+  const setupDeviceDetection = (userEmail: string) => {
+    // Check for other devices on load
+    const { hasOtherDevice, otherDeviceInfo } = deviceDetection.checkForOtherDevices(userEmail)
+    if (hasOtherDevice && otherDeviceInfo) {
+      setMultiDeviceWarning({ show: true, otherDeviceInfo })
+    }
+
+    // Store current session
+    deviceDetection.storeDeviceSession(userEmail)
+
+    // Set up storage listener for real-time detection
+    const cleanup = deviceDetection.setupStorageListener(userEmail, (deviceInfo) => {
+      setMultiDeviceWarning({ show: true, otherDeviceInfo: deviceInfo })
+    })
+
+    // Update activity every 5 minutes
+    const activityInterval = setInterval(() => {
+      deviceDetection.updateActivity(userEmail)
+    }, 5 * 60 * 1000)
+
+    // Cleanup on unmount
+    return () => {
+      cleanup()
+      clearInterval(activityInterval)
     }
   }
 
@@ -128,8 +167,24 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }
 
   const handleSignOut = async () => {
+    // Clean up device session before signing out
+    if (currentUser?.email) {
+      deviceDetection.clearDeviceSession(currentUser.email)
+    }
     await supabase.auth.signOut()
     router.push('/auth/login')
+  }
+
+  const handleContinueHere = () => {
+    // User chose to continue on this device
+    if (currentUser?.email) {
+      deviceDetection.storeDeviceSession(currentUser.email)
+    }
+  }
+
+  const handleSwitchBack = () => {
+    // User chose to go back to other device - sign out here
+    handleSignOut()
   }
 
   const handleAdminToggle = () => {
@@ -587,6 +642,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </Typography>
           </Box>
         </MenuItem>
+        <MenuItem disabled sx={{ opacity: '0.7 !important' }}>
+          <ListItemIcon>
+            <Devices fontSize="small" />
+          </ListItemIcon>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Device: {deviceDetection.getDeviceInfo()}
+            </Typography>
+          </Box>
+        </MenuItem>
         <MenuItem onClick={handleHelpOpen}>
           <ListItemIcon>
             <HelpOutline fontSize="small" />
@@ -877,6 +942,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Multi-Device Warning Dialog */}
+      <MultiDeviceWarning
+        open={multiDeviceWarning.show}
+        onClose={() => setMultiDeviceWarning({ show: false, otherDeviceInfo: '' })}
+        otherDeviceInfo={multiDeviceWarning.otherDeviceInfo}
+        onContinueHere={handleContinueHere}
+        onSwitchBack={handleSwitchBack}
+      />
     </Box>
   )
 }
