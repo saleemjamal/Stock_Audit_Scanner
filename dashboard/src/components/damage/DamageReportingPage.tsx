@@ -22,6 +22,7 @@ import {
 import { CameraAlt, Send, CheckCircle } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import DamageCameraCapture from './DamageCameraCapture'
+import MobileCameraInput from './MobileCameraInput'
 import BarcodeScanner from './BarcodeScanner'
 import { CapturedPhoto } from '@/services/DamageCameraService'
 
@@ -54,11 +55,24 @@ export default function DamageReportingPage() {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [isMobile, setIsMobile] = useState(false);
 
     const supabase = createClient();
 
     useEffect(() => {
         loadUserAndSession();
+        
+        // Detect mobile device
+        const checkMobile = () => {
+            const isTouchDevice = 'ontouchstart' in window;
+            const isSmallScreen = window.innerWidth <= 768;
+            const mobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            setIsMobile((isTouchDevice && isSmallScreen) || mobileUA);
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
     const loadUserAndSession = async () => {
@@ -275,10 +289,17 @@ export default function DamageReportingPage() {
 
                     {/* Step 2: Photo Capture */}
                     {currentStep === 1 && (
-                        <DamageCameraCapture
-                            onPhotosCapture={handlePhotosCapture}
-                            onCancel={() => setCurrentStep(0)}
-                        />
+                        isMobile ? (
+                            <MobileCameraInput
+                                onPhotosCapture={handlePhotosCapture}
+                                onCancel={() => setCurrentStep(0)}
+                            />
+                        ) : (
+                            <DamageCameraCapture
+                                onPhotosCapture={handlePhotosCapture}
+                                onCancel={() => setCurrentStep(0)}
+                            />
+                        )
                     )}
 
                     {/* Step 3: Details & Submit */}

@@ -20,7 +20,18 @@ import {
     ImageList,
     ImageListItem,
     Alert,
-    CircularProgress
+    CircularProgress,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Paper,
+    Checkbox,
+    IconButton,
+    ToggleButton,
+    ToggleButtonGroup
 } from '@mui/material'
 import { CheckCircle, Cancel, Visibility, Refresh } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
@@ -54,12 +65,22 @@ export default function DamageApprovalPage() {
     const [loading, setLoading] = useState(true);
     const [processing, setProcessing] = useState(false);
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set());
+    const [viewMode, setViewMode] = useState<'cards' | 'list'>('list');
+    const [allImages, setAllImages] = useState<Record<string, DamageImage[]>>({});
 
     const supabase = createClient();
 
     useEffect(() => {
         loadUserAndReports();
     }, []);
+
+    // Load images when reports load
+    useEffect(() => {
+        if (pendingReports.length > 0) {
+            loadAllImages();
+        }
+    }, [pendingReports]);
 
     const loadUserAndReports = async () => {
         try {
@@ -113,6 +134,30 @@ export default function DamageApprovalPage() {
             setReportImages(data || []);
         } catch (error) {
             console.error('Error loading images:', error);
+        }
+    };
+
+    const loadAllImages = async () => {
+        if (pendingReports.length === 0) return;
+        
+        try {
+            const imagePromises = pendingReports.map(async (report) => {
+                const { data } = await supabase
+                    .from('damage_images')
+                    .select('*')
+                    .eq('damaged_item_id', report.damage_id)
+                    .order('image_order');
+                return { damageId: report.damage_id, images: data || [] };
+            });
+
+            const results = await Promise.all(imagePromises);
+            const imageMap: Record<string, DamageImage[]> = {};
+            results.forEach(r => {
+                imageMap[r.damageId] = r.images;
+            });
+            setAllImages(imageMap);
+        } catch (error) {
+            console.error('Error loading all images:', error);
         }
     };
 
@@ -181,6 +226,82 @@ export default function DamageApprovalPage() {
         }
     };
 
+    const handleBulkApprove = async () => {
+        if (!currentUser || selectedReports.size === 0) return;
+
+        setProcessing(true);
+        try {
+            for (const damageId of Array.from(selectedReports)) {
+                await supabase.rpc('approve_damage_report', {
+                    p_damage_id: damageId,
+                    p_approved_by: currentUser.id,
+                    p_remove_from_stock: false
+                });
+            }
+
+            setSelectedReports(new Set());
+            await loadPendingReports(currentUser.id);
+            alert(`${selectedReports.size} damage reports approved successfully`);
+        } catch (error) {
+            console.error('Error bulk approving reports:', error);
+            alert('Failed to approve reports');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleBulkReject = async () => {
+        if (!currentUser || selectedReports.size === 0) return;
+        const reason = prompt('Please provide a rejection reason for all selected items:');
+        if (!reason?.trim()) return;
+
+        setProcessing(true);
+        try {
+            for (const damageId of Array.from(selectedReports)) {
+                await supabase
+                    .from('damaged_items')
+                    .update({
+                        status: 'rejected',
+                        rejection_reason: reason,
+                        approved_by: currentUser.id,
+                        approved_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', damageId);
+            }
+
+            setSelectedReports(new Set());
+            await loadPendingReports(currentUser.id);
+            alert(`${selectedReports.size} damage reports rejected`);
+        } catch (error) {
+            console.error('Error bulk rejecting reports:', error);
+            alert('Failed to reject reports');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleQuickApprove = async (damageId: string) => {
+        if (!currentUser) return;
+
+        setProcessing(true);
+        try {
+            await supabase.rpc('approve_damage_report', {
+                p_damage_id: damageId,
+                p_approved_by: currentUser.id,
+                p_remove_from_stock: false
+            });
+
+            await loadPendingReports(currentUser.id);
+            alert('Damage report approved successfully');
+        } catch (error) {
+            console.error('Error approving report:', error);
+            alert('Failed to approve report');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
     const getSeverityColor = (severity: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
         switch (severity) {
             case 'minor': return 'info';
@@ -237,61 +358,196 @@ export default function DamageApprovalPage() {
                     </CardContent>
                 </Card>
             ) : (
-                <Grid container spacing={3}>
-                    {pendingReports.map((report) => (
-                        <Grid item xs={12} md={6} lg={4} key={report.damage_id}>
-                            <Card>
-                                <CardContent>
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                                        <Typography variant="h6" component="div" sx={{ fontFamily: 'monospace' }}>
-                                            {report.barcode}
-                                        </Typography>
-                                        <Chip
-                                            label={report.damage_severity}
-                                            color={getSeverityColor(report.damage_severity)}
-                                            size="small"
-                                            sx={{ textTransform: 'capitalize' }}
-                                        />
-                                    </Box>
+                <Box>
+                    {/* View toggle and bulk actions */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                        <Box sx={{ display: 'flex', gap: 2 }}>
+                            <Button
+                                variant="contained"
+                                onClick={handleBulkApprove}
+                                disabled={selectedReports.size === 0 || processing}
+                            >
+                                Approve Selected ({selectedReports.size})
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={handleBulkReject}
+                                disabled={selectedReports.size === 0 || processing}
+                            >
+                                Reject Selected
+                            </Button>
+                        </Box>
+                        <ToggleButtonGroup
+                            value={viewMode}
+                            exclusive
+                            onChange={(e, v) => v && setViewMode(v)}
+                        >
+                            <ToggleButton value="list">List</ToggleButton>
+                            <ToggleButton value="cards">Cards</ToggleButton>
+                        </ToggleButtonGroup>
+                    </Box>
 
-                                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                                        <strong>Reported by:</strong> {report.reported_by_name}
-                                    </Typography>
+                    {viewMode === 'list' ? (
+                        <TableContainer component={Paper}>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell padding="checkbox">
+                                            <Checkbox
+                                                checked={selectedReports.size === pendingReports.length}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedReports(new Set(pendingReports.map(r => r.damage_id)))
+                                                    } else {
+                                                        setSelectedReports(new Set())
+                                                    }
+                                                }}
+                                            />
+                                        </TableCell>
+                                        <TableCell>Barcode</TableCell>
+                                        <TableCell>Severity</TableCell>
+                                        <TableCell>Reporter</TableCell>
+                                        <TableCell>Description</TableCell>
+                                        <TableCell>Photos</TableCell>
+                                        <TableCell>Actions</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {pendingReports.map((report) => (
+                                        <TableRow key={report.damage_id}>
+                                            <TableCell padding="checkbox">
+                                                <Checkbox
+                                                    checked={selectedReports.has(report.damage_id)}
+                                                    onChange={(e) => {
+                                                        const newSelected = new Set(selectedReports)
+                                                        if (e.target.checked) {
+                                                            newSelected.add(report.damage_id)
+                                                        } else {
+                                                            newSelected.delete(report.damage_id)
+                                                        }
+                                                        setSelectedReports(newSelected)
+                                                    }}
+                                                />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                                                    {report.barcode}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    label={report.damage_severity}
+                                                    color={getSeverityColor(report.damage_severity)}
+                                                    size="small"
+                                                />
+                                            </TableCell>
+                                            <TableCell>{report.reported_by_name}</TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {report.damage_description || '-'}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                                    {allImages[report.damage_id]?.map((img, idx) => (
+                                                        <img
+                                                            key={idx}
+                                                            src={img.image_url}
+                                                            style={{
+                                                                width: 40,
+                                                                height: 40,
+                                                                objectFit: 'cover',
+                                                                cursor: 'pointer',
+                                                                border: '1px solid #ddd'
+                                                            }}
+                                                            onClick={() => window.open(img.image_url, '_blank')}
+                                                        />
+                                                    )) || <Typography variant="caption">Loading...</Typography>}
+                                                </Box>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Box sx={{ display: 'flex', gap: 1 }}>
+                                                    <IconButton
+                                                        size="small"
+                                                        color="success"
+                                                        onClick={() => handleQuickApprove(report.damage_id)}
+                                                    >
+                                                        <CheckCircle />
+                                                    </IconButton>
+                                                    <IconButton
+                                                        size="small"
+                                                        color="error"
+                                                        onClick={() => handleViewReport(report)}
+                                                    >
+                                                        <Cancel />
+                                                    </IconButton>
+                                                </Box>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    ) : (
+                        // Keep existing card view as option
+                        <Grid container spacing={3}>
+                            {pendingReports.map((report) => (
+                                <Grid item xs={12} md={6} lg={4} key={report.damage_id}>
+                                    <Card>
+                                        <CardContent>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                                                <Typography variant="h6" component="div" sx={{ fontFamily: 'monospace' }}>
+                                                    {report.barcode}
+                                                </Typography>
+                                                <Chip
+                                                    label={report.damage_severity}
+                                                    color={getSeverityColor(report.damage_severity)}
+                                                    size="small"
+                                                    sx={{ textTransform: 'capitalize' }}
+                                                />
+                                            </Box>
 
-                                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                                        <strong>Location:</strong> {report.location_name} ({report.session_shortname})
-                                    </Typography>
+                                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                                                <strong>Reported by:</strong> {report.reported_by_name}
+                                            </Typography>
 
-                                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                                        <strong>Date:</strong> {new Date(report.reported_at).toLocaleDateString()}
-                                    </Typography>
+                                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                                                <strong>Location:</strong> {report.location_name} ({report.session_shortname})
+                                            </Typography>
 
-                                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                                        <strong>Photos:</strong> {report.image_count} attached
-                                    </Typography>
+                                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                                                <strong>Date:</strong> {new Date(report.reported_at).toLocaleDateString()}
+                                            </Typography>
 
-                                    {report.damage_description && (
-                                        <Typography variant="body2" sx={{ mt: 2, fontStyle: 'italic', color: 'text.secondary' }}>
-                                            "{report.damage_description}"
-                                        </Typography>
-                                    )}
+                                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                                                <strong>Photos:</strong> {report.image_count} attached
+                                            </Typography>
 
-                                    <Box sx={{ mt: 2 }}>
-                                        <Button
-                                            variant="contained"
-                                            startIcon={<Visibility />}
-                                            onClick={() => handleViewReport(report)}
-                                            size="small"
-                                            fullWidth
-                                        >
-                                            Review & Approve
-                                        </Button>
-                                    </Box>
-                                </CardContent>
-                            </Card>
+                                            {report.damage_description && (
+                                                <Typography variant="body2" sx={{ mt: 2, fontStyle: 'italic', color: 'text.secondary' }}>
+                                                    "{report.damage_description}"
+                                                </Typography>
+                                            )}
+
+                                            <Box sx={{ mt: 2 }}>
+                                                <Button
+                                                    variant="contained"
+                                                    startIcon={<Visibility />}
+                                                    onClick={() => handleViewReport(report)}
+                                                    size="small"
+                                                    fullWidth
+                                                >
+                                                    Review & Approve
+                                                </Button>
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                            ))}
                         </Grid>
-                    ))}
-                </Grid>
+                    )}
+                </Box>
             )}
 
             {/* Report Detail Dialog */}
