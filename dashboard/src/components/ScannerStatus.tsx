@@ -20,8 +20,11 @@ import {
   Assignment,
   TrendingUp,
   CheckCircle,
+  PauseCircle,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
+import { ScanningStatsDialog } from './ScanningStatsDialog'
+import { ScannerDetailDialog } from './ScannerDetailDialog'
 
 interface ScannerInfo {
   id: string
@@ -34,11 +37,21 @@ interface ScannerInfo {
   total_reviewed_racks: number
   time_since_last_scan: string
   scans_per_hour: number
+  total_downtime_minutes: number
+}
+
+interface ScannerStats {
+  total_scans_per_hour: number
+  average_scans_per_hour: number
 }
 
 export default function ScannerStatus() {
   const [scanners, setScanners] = useState<ScannerInfo[]>([])
+  const [stats, setStats] = useState<ScannerStats>({ total_scans_per_hour: 0, average_scans_per_hour: 0 })
   const [loading, setLoading] = useState(true)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [overallStatsOpen, setOverallStatsOpen] = useState(false)
+  const [selectedScanner, setSelectedScanner] = useState<ScannerInfo | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -84,9 +97,12 @@ export default function ScannerStatus() {
 
       if (!activeSession) {
         setScanners([])
+        setActiveSessionId(null)
         setLoading(false)
         return
       }
+
+      setActiveSessionId(activeSession.id)
 
       // Get scanners and supervisors assigned to the audit session's location
       const { data: activeUsers } = await supabase
@@ -149,6 +165,8 @@ export default function ScannerStatus() {
 
         // Calculate scans per hour for active session
         let scansPerHour = 0
+        let totalDowntimeMinutes = 0
+        
         if (sessionScans && sessionScans > 0 && latestScan?.created_at) {
           // Get first scan for this session
           const { data: firstScan } = await supabase
@@ -165,6 +183,43 @@ export default function ScannerStatus() {
             const lastScanTime = new Date(latestScan.created_at)
             const hoursWorked = (lastScanTime.getTime() - firstScanTime.getTime()) / (1000 * 60 * 60)
             scansPerHour = hoursWorked > 0 ? Math.round(sessionScans / hoursWorked) : 0
+            
+            // Calculate downtime (gaps > 5 minutes between scans)
+            // Allow 1x 30min break + 2x 10min breaks (50min total allowance)
+            const { data: allScans } = await supabase
+              .from('scans')
+              .select('created_at')
+              .eq('scanner_id', user.id)
+              .eq('audit_session_id', activeSession.id)
+              .order('created_at', { ascending: true })
+            
+            if (allScans && allScans.length > 1) {
+              const gaps: number[] = []
+              
+              for (let i = 1; i < allScans.length; i++) {
+                const prevScan = new Date(allScans[i-1].created_at)
+                const currentScan = new Date(allScans[i].created_at)
+                const gapMinutes = (currentScan.getTime() - prevScan.getTime()) / (1000 * 60)
+                
+                if (gapMinutes > 5) {
+                  gaps.push(gapMinutes - 5) // Subtract 5min buffer for normal work gaps
+                }
+              }
+              
+              // Sort gaps largest first to apply break allowances
+              gaps.sort((a, b) => b - a)
+              
+              let remainingBreakTime = 50 // 30min + 10min + 10min allowance
+              for (const gap of gaps) {
+                if (remainingBreakTime > 0) {
+                  const allowedBreak = Math.min(gap, remainingBreakTime)
+                  remainingBreakTime -= allowedBreak
+                  totalDowntimeMinutes += gap - allowedBreak
+                } else {
+                  totalDowntimeMinutes += gap
+                }
+              }
+            }
           }
         }
 
@@ -179,6 +234,7 @@ export default function ScannerStatus() {
           total_reviewed_racks: totalReviewedRacks,
           time_since_last_scan: timeSince,
           scans_per_hour: scansPerHour,
+          total_downtime_minutes: Math.round(totalDowntimeMinutes),
         })
       }
 
@@ -190,7 +246,18 @@ export default function ScannerStatus() {
         return new Date(b.last_scan_at).getTime() - new Date(a.last_scan_at).getTime()
       })
 
+      // Calculate aggregate stats
+      const activeScannersWithScans = scannerData.filter(s => s.scans_per_hour > 0)
+      const totalScansPerHour = activeScannersWithScans.reduce((sum, s) => sum + s.scans_per_hour, 0)
+      const averageScansPerHour = activeScannersWithScans.length > 0 
+        ? Math.round(totalScansPerHour / activeScannersWithScans.length) 
+        : 0
+
       setScanners(scannerData)
+      setStats({
+        total_scans_per_hour: totalScansPerHour,
+        average_scans_per_hour: averageScansPerHour
+      })
     } catch (error) {
       console.error('Error loading scanner status:', error)
     } finally {
@@ -227,6 +294,14 @@ export default function ScannerStatus() {
     return `${approved}/${total} (${Math.round((approved / total) * 100)}%)`
   }
 
+  const formatDowntime = (minutes: number): string => {
+    if (minutes === 0) return '0min'
+    if (minutes < 60) return `${minutes}min`
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`
+  }
+
   if (loading) {
     return (
       <Card>
@@ -243,9 +318,46 @@ export default function ScannerStatus() {
     <Card>
       <CardContent>
         <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Person />
-          Scanner Status
+          <TrendingUp />
+          Scanning Stats
         </Typography>
+        
+        {scanners.length > 0 && (
+          <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Chip
+              label={`${stats.total_scans_per_hour} scans/hr total`}
+              color="primary"
+              variant="filled"
+              icon={<TrendingUp sx={{ fontSize: '18px !important' }} />}
+              sx={{ 
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                '&:hover': { 
+                  bgcolor: 'primary.dark',
+                  transform: 'scale(1.05)'
+                },
+                transition: 'all 0.2s'
+              }}
+              onClick={() => setOverallStatsOpen(true)}
+            />
+            <Chip
+              label={`${stats.average_scans_per_hour} scans/hr avg`}
+              color="secondary"
+              variant="filled"
+              icon={<TrendingUp sx={{ fontSize: '18px !important' }} />}
+              sx={{ 
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                '&:hover': { 
+                  bgcolor: 'secondary.dark',
+                  transform: 'scale(1.05)'
+                },
+                transition: 'all 0.2s'
+              }}
+              onClick={() => setOverallStatsOpen(true)}
+            />
+          </Box>
+        )}
         
         {scanners.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
@@ -254,7 +366,20 @@ export default function ScannerStatus() {
         ) : (
           <List dense>
             {scanners.map((scanner, index) => (
-              <ListItem key={scanner.id} divider={index < scanners.length - 1}>
+              <ListItem 
+                key={scanner.id} 
+                divider={index < scanners.length - 1}
+                sx={{
+                  cursor: 'pointer',
+                  '&:hover': {
+                    bgcolor: 'action.hover',
+                    borderRadius: 1
+                  },
+                  transition: 'background-color 0.2s',
+                  borderRadius: 1
+                }}
+                onClick={() => setSelectedScanner(scanner)}
+              >
                 <ListItemAvatar>
                   <Avatar sx={{ bgcolor: 'primary.main' }}>
                     {scanner.username.charAt(0).toUpperCase()}
@@ -309,6 +434,15 @@ export default function ScannerStatus() {
                           }}
                         />
                       )}
+                      {scanner.total_downtime_minutes > 0 && (
+                        <Chip
+                          label={`${formatDowntime(scanner.total_downtime_minutes)} downtime`}
+                          size="small"
+                          variant="outlined"
+                          color="warning"
+                          icon={<PauseCircle sx={{ fontSize: '14px !important' }} />}
+                        />
+                      )}
                     </Box>
                   }
                 />
@@ -317,6 +451,31 @@ export default function ScannerStatus() {
           </List>
         )}
       </CardContent>
+      
+      {/* Overall Stats Dialog */}
+      <ScanningStatsDialog
+        open={overallStatsOpen}
+        onClose={() => setOverallStatsOpen(false)}
+        sessionId={activeSessionId}
+      />
+      
+      {/* Individual Scanner Dialog */}
+      {selectedScanner && (
+        <ScannerDetailDialog
+          open={!!selectedScanner}
+          onClose={() => setSelectedScanner(null)}
+          sessionId={activeSessionId}
+          scannerId={selectedScanner.id}
+          scannerName={selectedScanner.full_name || selectedScanner.username}
+          scannerUsername={selectedScanner.username}
+          currentStats={{
+            session_scans: selectedScanner.session_scans,
+            scans_per_hour: selectedScanner.scans_per_hour,
+            total_downtime_minutes: selectedScanner.total_downtime_minutes,
+            time_since_last_scan: selectedScanner.time_since_last_scan
+          }}
+        />
+      )}
     </Card>
   )
 }
