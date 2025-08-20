@@ -17,13 +17,17 @@ import {
     InputLabel,
     Select,
     MenuItem,
-    CircularProgress
+    CircularProgress,
+    Tabs,
+    Tab
 } from '@mui/material'
-import { CameraAlt, Send, CheckCircle } from '@mui/icons-material'
+import { CameraAlt, Send, CheckCircle, Upload, QueuePlayNext } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
 import DamageCameraCapture from './DamageCameraCapture'
 import MobileCameraInput from './MobileCameraInput'
 import BarcodeScanner from './BarcodeScanner'
+import DamageCSVUpload from './DamageCSVUpload'
+import PhotoCollectionQueue from './PhotoCollectionQueue'
 import { CapturedPhoto } from '@/services/DamageCameraService'
 
 interface DamageReport {
@@ -56,6 +60,7 @@ export default function DamageReportingPage() {
     const [success, setSuccess] = useState(false);
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [isMobile, setIsMobile] = useState(false);
+    const [activeTab, setActiveTab] = useState(0);
 
     const supabase = createClient();
 
@@ -251,7 +256,7 @@ export default function DamageReportingPage() {
     return (
         <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
             <Typography variant="h4" gutterBottom>
-                Report Damaged Item
+                Report Damaged Items
             </Typography>
             
             <Alert severity="info" sx={{ mb: 3 }}>
@@ -260,24 +265,37 @@ export default function DamageReportingPage() {
             </Alert>
 
             <Card>
-                <CardContent>
-                    <Stepper activeStep={currentStep} sx={{ mb: 4 }}>
-                        <Step>
-                            <StepLabel>Scan Item Barcode</StepLabel>
-                        </Step>
-                        <Step>
-                            <StepLabel>Take Photos</StepLabel>
-                        </Step>
-                        <Step>
-                            <StepLabel>Add Details & Submit</StepLabel>
-                        </Step>
-                    </Stepper>
+                <Tabs 
+                    value={activeTab} 
+                    onChange={(e, v) => setActiveTab(v)}
+                    variant="fullWidth"
+                    sx={{ borderBottom: 1, borderColor: 'divider' }}
+                >
+                    <Tab label="Single Item" icon={<CameraAlt />} iconPosition="start" />
+                    <Tab label="CSV Import" icon={<Upload />} iconPosition="start" />
+                    <Tab label="Photo Queue" icon={<QueuePlayNext />} iconPosition="start" />
+                </Tabs>
 
-                    {error && (
-                        <Alert severity="error" sx={{ mb: 3 }}>
-                            {error}
-                        </Alert>
-                    )}
+                <CardContent>
+                    {activeTab === 0 && (
+                        <>
+                            <Stepper activeStep={currentStep} sx={{ mb: 4 }}>
+                                <Step>
+                                    <StepLabel>Scan Item Barcode</StepLabel>
+                                </Step>
+                                <Step>
+                                    <StepLabel>Take Photos</StepLabel>
+                                </Step>
+                                <Step>
+                                    <StepLabel>Add Details & Submit</StepLabel>
+                                </Step>
+                            </Stepper>
+
+                            {error && (
+                                <Alert severity="error" sx={{ mb: 3 }}>
+                                    {error}
+                                </Alert>
+                            )}
 
                     {/* Step 1: Barcode Scanning */}
                     {currentStep === 0 && (
@@ -367,6 +385,21 @@ export default function DamageReportingPage() {
                                 </Button>
                             </Box>
                         </Box>
+                    )}
+                        </>
+                    )}
+
+                    {activeTab === 1 && (
+                        <DamageCSVUpload
+                            sessionId={activeSession.id}
+                            onComplete={() => {
+                                setActiveTab(2); // Switch to photo queue after import
+                            }}
+                        />
+                    )}
+
+                    {activeTab === 2 && (
+                        <PhotoCollectionQueue sessionId={activeSession.id} />
                     )}
                 </CardContent>
             </Card>

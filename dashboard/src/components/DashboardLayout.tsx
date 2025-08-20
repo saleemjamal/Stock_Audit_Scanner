@@ -47,6 +47,8 @@ import {
   Gavel,
   Add,
   TrendingUp,
+  DarkMode,
+  LightMode,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -69,7 +71,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [helpOpen, setHelpOpen] = useState(false)
   const router = useRouter()
   const supabase = createClient()
-  const { mode } = useTheme()
+  const { mode, toggleTheme } = useTheme()
 
   useEffect(() => {
     loadCurrentUser()
@@ -489,6 +491,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Badge badgeContent={3} color="error">
               <Notifications />
             </Badge>
+          </IconButton>
+
+          <IconButton 
+            color="inherit" 
+            sx={{ mr: 1 }}
+            onClick={toggleTheme}
+            title={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`}
+          >
+            {mode === 'light' ? <DarkMode /> : <LightMode />}
           </IconButton>
 
           <IconButton

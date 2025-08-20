@@ -38,6 +38,7 @@ dashboard/src/
 - `racks` - Approval workflow
 - `scans` - Barcode data with quantity field
 - `damaged_items` - Damage reporting with approval workflow
+- `damage_drafts` - CSV import workflow for high-volume damage processing
 - `add_on_items` - Items without barcodes
 - `inventory_items` - Expected inventory for variance analysis
 - `partial_damages` - Partial damage tracking with photos
@@ -61,7 +62,8 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 - **USB Scanner Support** for web scanning
 - **Real-time Updates** via Supabase subscriptions
 - **Approval Workflow** - Scan → Review → Approve/Reject
-- **Damage Reporting** - 3-photo capture system with approval workflow
+- **Damage Reporting** - 3-photo capture system with approval workflow + mobile camera support
+- **High-Volume Damage Processing** - CSV import + photo queue + bulk operations + list view
 - **Partial Damage System** - Flag items with unit ratios and severity levels
 - **Add-Ons System** - Document items without barcodes
 - **Brand Variance Analysis** - Real-time variance by brand (top 20)
@@ -91,6 +93,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 - ✅ Inventory management with CSV import
 - ✅ Rack barcode scanning (DDMM-###)
 - ✅ Error handling and user feedback improvements
+- ✅ **High-volume damage processing** - Mobile camera fix, list view, bulk operations, CSV import
 
 ## Advanced Features
 
@@ -113,6 +116,13 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 - **Unit Ratios**: Track affected quantity (e.g., "2/12 damaged")
 - **Photo Documentation**: Multiple photos per damage report
 - **Damage Types**: Configurable damage categories
+
+### High-Volume Damage Processing System
+- **Mobile Camera Support**: Native file input for mobile browsers (no getUserMedia issues)
+- **CSV Import Workflow**: Bulk import damage reports → photo collection queue
+- **List View**: Efficient table view with inline image thumbnails for 150+ items
+- **Bulk Operations**: Select multiple reports, bulk approve/reject functionality
+- **Photo Collection Queue**: Mobile-optimized interface for adding photos to imported items
 
 ### Key SQL Functions
 ```sql

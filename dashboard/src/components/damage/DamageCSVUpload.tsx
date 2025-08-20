@@ -54,10 +54,13 @@ export default function DamageCSVUpload({ sessionId, onComplete }: DamageCSVUplo
               severity: String(row.severity).trim().toLowerCase(),
               description: row.description ? String(row.description).trim() : ''
             }))
-            .filter(row => ['minor', 'medium', 'severe', 'total_loss'].includes(row.severity))
+            .filter(row => {
+              // Validate barcode format (max 13 characters)
+              return row.barcode.length <= 13 && row.barcode.length > 0
+            })
 
           if (validRows.length === 0) {
-            setError('No valid rows found. Please ensure CSV has columns: barcode, severity, description')
+            setError('No valid rows found. Please ensure CSV has columns: barcode (max 13 chars), severity, description')
             return
           }
 
@@ -113,7 +116,7 @@ export default function DamageCSVUpload({ sessionId, onComplete }: DamageCSVUplo
       </Typography>
       
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        CSV should have columns: <strong>barcode</strong>, <strong>severity</strong> (minor/medium/severe/total_loss), <strong>description</strong>
+        CSV should have columns: <strong>barcode</strong> (max 13 characters), <strong>severity</strong>, <strong>description</strong>
       </Typography>
 
       <Box sx={{ mb: 3 }}>
