@@ -18,7 +18,6 @@ import {
   CheckCircle,
   Assignment,
   Timer,
-  People,
   Print,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
@@ -33,7 +32,7 @@ interface KPIStats {
   // Operational metrics
   totalScans: number
   avgRackTime: number
-  activeScannersCount: number
+  avgApprovalTime: number
   
   // Supporting data
   totalRacks: number
@@ -56,7 +55,7 @@ export default function KPIOverview() {
     firstPassYield: 0,
     totalScans: 0,
     avgRackTime: 0,
-    activeScannersCount: 0,
+    avgApprovalTime: 0,
     totalRacks: 0,
     approvedRacks: 0,
     rejectedRacks: 0,
@@ -94,7 +93,7 @@ export default function KPIOverview() {
           firstPassYield: 0,
           totalScans: 0,
           avgRackTime: 0,
-          activeScannersCount: 0,
+          avgApprovalTime: 0,
           totalRacks: 0,
           approvedRacks: 0,
           rejectedRacks: 0,
@@ -133,6 +132,7 @@ export default function KPIOverview() {
         .select(`
           status,
           assigned_at,
+          completed_at,
           ready_at,
           approved_at,
           rejected_at
@@ -152,12 +152,6 @@ export default function KPIOverview() {
         .select('*', { count: 'exact', head: true })
         .eq('audit_session_id', activeSession.id)
       
-      // Get active scanners (who have scanned in last 2 hours) from the active session
-      const { data: activeUsers } = await supabase
-        .from('scans')
-        .select('scanner_id')
-        .eq('audit_session_id', activeSession.id)
-        .gte('created_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
       
       if (racks && scans) {
         // Calculate KPIs
@@ -179,7 +173,7 @@ export default function KPIOverview() {
         // Total scans for the entire audit session
         const totalScans = totalScansCount || 0
         
-        // Average rack completion time
+        // Average rack completion time (assigned to approved/rejected)
         const completedRacksWithTimes = racks.filter(r => 
           r.assigned_at && (r.approved_at || r.rejected_at)
         )
@@ -191,9 +185,14 @@ export default function KPIOverview() {
             }, 0) / completedRacksWithTimes.length / (1000 * 60) // Convert to minutes
           : 0
         
-        // Active scanners count
-        const uniqueActiveScanners = activeUsers 
-          ? new Set(activeUsers.map(u => u.scanner_id)).size 
+        // Approval throughput rate (time since first submission / approved count)
+        const racksWithCompletedTime = racks.filter(r => r.completed_at)
+        const firstCompletedTime = racksWithCompletedTime.length > 0 
+          ? Math.min(...racksWithCompletedTime.map(r => new Date(r.completed_at).getTime()))
+          : null
+        
+        const avgApprovalTime = firstCompletedTime && approvedRacks > 0
+          ? (Date.now() - firstCompletedTime) / approvedRacks / (1000 * 60) // Minutes per approval
           : 0
         
         setStats({
@@ -202,7 +201,7 @@ export default function KPIOverview() {
           firstPassYield,
           totalScans,
           avgRackTime,
-          activeScannersCount: uniqueActiveScanners,
+          avgApprovalTime,
           totalRacks,
           approvedRacks,
           rejectedRacks,
@@ -268,12 +267,12 @@ export default function KPIOverview() {
       clickable: true,
     },
     {
-      title: 'Active Scanners',
-      value: stats.activeScannersCount,
-      subtitle: 'Working Now',
-      icon: <People />,
-      color: 'info.main',
-      progress: (stats.activeScannersCount / 8) * 100, // Assuming 8 is good capacity
+      title: 'Approval Rate',
+      value: stats.avgApprovalTime > 0 ? `${stats.avgApprovalTime.toFixed(1)}m` : '—',
+      subtitle: 'Per Rack',
+      icon: <Timer />,
+      color: stats.avgApprovalTime <= 2 ? 'success.main' : stats.avgApprovalTime <= 5 ? 'warning.main' : 'error.main',
+      progress: stats.avgApprovalTime > 0 ? Math.max(100 - (stats.avgApprovalTime / 10) * 100, 0) : 0,
     },
     {
       title: 'Total Items Scanned',

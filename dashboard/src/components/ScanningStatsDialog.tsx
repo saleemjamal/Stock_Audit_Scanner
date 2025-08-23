@@ -58,27 +58,46 @@ export function ScanningStatsDialog({ open, onClose, sessionId }: ScanningStatsD
 
       if (error) throw error
 
-      // Group scans by hour and calculate stats
+      // Group scans by hour and calculate stats (in IST)
       const hourlyData: { [key: string]: { total: number; scanners: Set<string> } } = {}
       
       scans?.forEach(scan => {
-        const hour = new Date(scan.created_at).toISOString().slice(0, 13) + ':00:00'
-        if (!hourlyData[hour]) {
-          hourlyData[hour] = { total: 0, scanners: new Set() }
+        // Convert to IST more directly
+        const scanDate = new Date(scan.created_at)
+        // Add 5.5 hours to UTC to get IST
+        const istDate = new Date(scanDate.getTime() + (5.5 * 60 * 60 * 1000))
+        const hour = istDate.getUTCHours() // Use UTC methods on the adjusted date
+        const date = istDate.toISOString().slice(0, 10) // YYYY-MM-DD
+        const hourKey = `${date} ${hour.toString().padStart(2, '0')}:00`
+        
+        if (!hourlyData[hourKey]) {
+          hourlyData[hourKey] = { total: 0, scanners: new Set() }
         }
-        hourlyData[hour].total++
-        hourlyData[hour].scanners.add(scan.scanner_id)
+        hourlyData[hourKey].total++
+        hourlyData[hourKey].scanners.add(scan.scanner_id)
       })
 
-      // Convert to chart data
-      const stats: HourlyStats[] = Object.entries(hourlyData).map(([hour, data]) => ({
-        hour: new Date(hour).toLocaleTimeString('en-US', { 
-          hour: 'numeric', 
-          hour12: true 
-        }),
-        total_scans_per_hour: data.total,
-        average_scans_per_hour: data.scanners.size > 0 ? Math.round(data.total / data.scanners.size) : 0
-      }))
+      // Filter out current incomplete hour to avoid misleading downward trend
+      const now = new Date()
+      const currentISTDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000))
+      const currentIncompleteHourKey = `${currentISTDate.toISOString().slice(0, 10)} ${currentISTDate.getUTCHours().toString().padStart(2, '0')}:00`
+      
+      // Convert to chart data - extract just the hour for display
+      const stats: HourlyStats[] = Object.entries(hourlyData)
+        .filter(([hourKey]) => hourKey !== currentIncompleteHourKey) // Exclude current incomplete hour
+        .sort(([a], [b]) => a.localeCompare(b)) // Simple string sort for YYYY-MM-DD HH:00 format
+        .map(([hourKey, data]) => {
+          // Extract hour from key like "2025-08-21 14:00"
+          const hourPart = parseInt(hourKey.split(' ')[1].split(':')[0])
+          const hour12 = hourPart % 12 || 12
+          const ampm = hourPart >= 12 ? 'PM' : 'AM'
+          
+          return {
+            hour: `${hour12} ${ampm}`,
+            total_scans_per_hour: data.total,
+            average_scans_per_hour: data.scanners.size > 0 ? Math.round(data.total / data.scanners.size) : 0
+          }
+        })
 
       setHourlyStats(stats)
     } catch (error) {

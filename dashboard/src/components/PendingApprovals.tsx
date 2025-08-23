@@ -113,7 +113,6 @@ export default function PendingApprovals() {
         .eq('status', 'ready_for_approval')
         .eq('audit_session_id', activeSession.id)
         .order('completed_at', { ascending: true })
-        .limit(10)
 
       if (error) {
         console.error('Error loading pending racks:', error)
@@ -146,6 +145,20 @@ export default function PendingApprovals() {
         scanners = data || []
       }
 
+      // Get scan counts for each rack
+      const rackIds = racks.map(r => r.id)
+      const { data: scans } = await supabase
+        .from('scans')
+        .select('rack_id')
+        .in('rack_id', rackIds)
+      
+      // Count scans per rack
+      const scanCountMap = new Map<string, number>()
+      scans?.forEach(scan => {
+        const count = scanCountMap.get(scan.rack_id) || 0
+        scanCountMap.set(scan.rack_id, count + 1)
+      })
+
       // Create lookup maps
       const locationMap = new Map(locations?.map(l => [l.id, l.name]) || [])
       const scannerMap = new Map(scanners?.map(s => [s.id, s.username]) || [])
@@ -156,7 +169,7 @@ export default function PendingApprovals() {
         rack_number: rack.rack_number,
         location_name: locationMap.get(rack.location_id) || 'Unknown Location',
         scanner_username: scannerMap.get(rack.scanner_id) || 'Unknown Scanner',
-        total_scans: rack.total_scans || 0,
+        total_scans: scanCountMap.get(rack.id) || 0,
         completed_at: rack.completed_at,
         status: rack.status,
       }))

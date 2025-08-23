@@ -28,6 +28,14 @@ import {
   DialogActions,
   Tabs,
   Tab,
+  useTheme,
+  useMediaQuery,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  Avatar,
+  Stack,
 } from '@mui/material'
 import {
   CheckCircle,
@@ -62,6 +70,10 @@ export default function ApprovalsPage() {
   // Tab and user management
   const [currentTab, setCurrentTab] = useState(0)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  
+  // Mobile responsiveness
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   
   // Rack approvals states
   const [pendingRacks, setPendingRacks] = useState<PendingRack[]>([])
@@ -120,6 +132,8 @@ export default function ApprovalsPage() {
       console.error('Error loading user:', error)
     }
   }
+
+  // Tour code removed
 
   useEffect(() => {
     // Set up real-time subscription only after we know the active session
@@ -230,6 +244,20 @@ export default function ApprovalsPage() {
       console.log('Locations:', locations?.length || 0)
       console.log('Scanners:', scanners?.length || 0)
 
+      // Get scan counts for each rack
+      const rackIds = racks.map(r => r.id)
+      const { data: scans } = await supabase
+        .from('scans')
+        .select('rack_id')
+        .in('rack_id', rackIds)
+      
+      // Count scans per rack
+      const scanCountMap = new Map<string, number>()
+      scans?.forEach(scan => {
+        const count = scanCountMap.get(scan.rack_id) || 0
+        scanCountMap.set(scan.rack_id, count + 1)
+      })
+
       // Transform data
       const transformedRacks = racks.map(rack => {
         const location = locations?.find(l => l.id === rack.location_id)
@@ -240,7 +268,7 @@ export default function ApprovalsPage() {
           rack_number: rack.rack_number,
           location_name: location?.name || 'Unknown Location',
           scanner_username: scanner?.username || scanner?.email || 'Unknown Scanner',
-          total_scans: rack.total_scans || 0,
+          total_scans: scanCountMap.get(rack.id) || 0,
           completed_at: rack.completed_at || rack.created_at,
           status: rack.status,
         }
@@ -417,14 +445,103 @@ export default function ApprovalsPage() {
               </CardContent>
             </Card>
 
-            {/* Racks Table */}
+            {/* Racks Table/Cards */}
             <Card>
               <CardContent>
                 {loading ? (
                   <Box display="flex" justifyContent="center" p={4}>
                     <CircularProgress />
                   </Box>
+                ) : isMobile ? (
+                  // Mobile Card View
+                  <Box>
+                    {filteredRacks.length === 0 ? (
+                      <Box textAlign="center" py={4}>
+                        <Typography variant="body2" color="text.secondary">
+                          {searchTerm ? 'No racks match your search' : 'No pending approvals'}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Stack spacing={2}>
+                        {filteredRacks.map((rack) => (
+                          <Card key={rack.id} variant="outlined" sx={{ p: 2 }}>
+                            <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
+                              <Box>
+                                <Typography variant="h6" fontWeight="bold" color="primary">
+                                  Rack {rack.rack_number}
+                                </Typography>
+                                <Box display="flex" alignItems="center" gap={1} mt={0.5}>
+                                  <Chip 
+                                    label={rack.total_scans} 
+                                    size="small" 
+                                    color="primary" 
+                                    variant="filled"
+                                  />
+                                  <Typography variant="caption" color="text.secondary">
+                                    scans
+                                  </Typography>
+                                </Box>
+                              </Box>
+                              <Box display="flex" gap={1}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleViewDetails(rack)}
+                                  title="View details"
+                                >
+                                  <Visibility />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={() => handleRackAction(rack.id, 'approve')}
+                                  disabled={processingAction === rack.id}
+                                  title="Approve"
+                                >
+                                  {processingAction === rack.id ? (
+                                    <CircularProgress size={16} />
+                                  ) : (
+                                    <CheckCircle />
+                                  )}
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleRejectClick(rack)}
+                                  disabled={processingAction === rack.id}
+                                  title="Reject"
+                                >
+                                  <Cancel />
+                                </IconButton>
+                              </Box>
+                            </Box>
+                            
+                            <Box display="flex" flexDirection="column" gap={1}>
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <LocationOn fontSize="small" color="action" />
+                                <Typography variant="body2">
+                                  {rack.location_name}
+                                </Typography>
+                              </Box>
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <Person fontSize="small" color="action" />
+                                <Typography variant="body2">
+                                  {rack.scanner_username}
+                                </Typography>
+                              </Box>
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <Schedule fontSize="small" color="action" />
+                                <Typography variant="body2" color="text.secondary">
+                                  {formatTimeAgo(rack.completed_at)}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Card>
+                        ))}
+                      </Stack>
+                    )}
+                  </Box>
                 ) : (
+                  // Desktop Table View
                   <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto' }}>
                     <Table>
                       <TableHead>

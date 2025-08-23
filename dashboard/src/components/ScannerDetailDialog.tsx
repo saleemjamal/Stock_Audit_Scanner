@@ -77,22 +77,41 @@ export function ScannerDetailDialog({
 
       if (error) throw error
 
-      // Group scans by hour
+      // Group scans by hour (in IST)
       const hourlyData: { [key: string]: number } = {}
       
       scans?.forEach(scan => {
-        const hour = new Date(scan.created_at).toISOString().slice(0, 13) + ':00:00'
-        hourlyData[hour] = (hourlyData[hour] || 0) + 1
+        // Convert to IST more directly
+        const scanDate = new Date(scan.created_at)
+        // Add 5.5 hours to UTC to get IST
+        const istDate = new Date(scanDate.getTime() + (5.5 * 60 * 60 * 1000))
+        const hour = istDate.getUTCHours() // Use UTC methods on the adjusted date
+        const date = istDate.toISOString().slice(0, 10) // YYYY-MM-DD
+        const hourKey = `${date} ${hour.toString().padStart(2, '0')}:00`
+        
+        hourlyData[hourKey] = (hourlyData[hourKey] || 0) + 1
       })
 
+      // Filter out current incomplete hour to avoid misleading downward trend
+      const now = new Date()
+      const currentISTDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000))
+      const currentIncompleteHourKey = `${currentISTDate.toISOString().slice(0, 10)} ${currentISTDate.getUTCHours().toString().padStart(2, '0')}:00`
+      
       // Convert to chart data
-      const stats: PersonalHourlyStats[] = Object.entries(hourlyData).map(([hour, count]) => ({
-        hour: new Date(hour).toLocaleTimeString('en-US', { 
-          hour: 'numeric', 
-          hour12: true 
-        }),
-        scans_count: count
-      }))
+      const stats: PersonalHourlyStats[] = Object.entries(hourlyData)
+        .filter(([hourKey]) => hourKey !== currentIncompleteHourKey) // Exclude current incomplete hour
+        .sort(([a], [b]) => a.localeCompare(b)) // Simple string sort for YYYY-MM-DD HH:00 format
+        .map(([hourKey, count]) => {
+          // Extract hour from key like "2025-08-21 14:00"
+          const hourPart = parseInt(hourKey.split(' ')[1].split(':')[0])
+          const hour12 = hourPart % 12 || 12
+          const ampm = hourPart >= 12 ? 'PM' : 'AM'
+          
+          return {
+            hour: `${hour12} ${ampm}`,
+            scans_count: count
+          }
+        })
 
       setHourlyStats(stats)
     } catch (error) {

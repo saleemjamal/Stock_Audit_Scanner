@@ -50,6 +50,7 @@ import {
   DarkMode,
   LightMode,
   Devices,
+  LocalShipping,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -208,6 +209,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     setHelpOpen(false)
   }
 
+
   const getNavigationItems = () => {
     const baseItems = [
       { text: 'Dashboard', icon: <Dashboard />, href: '/dashboard' },
@@ -225,7 +227,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       baseItems.push(
         { text: 'Approvals', icon: <CheckCircle />, href: '/dashboard/approvals' },
         { text: 'Reports', icon: <Assessment />, href: '/dashboard/reports' },
-        { text: 'Brand Variance', icon: <TrendingUp />, href: '/dashboard/variance' },
+        { text: 'Variance', icon: <TrendingUp />, href: '/dashboard/variance' },
+      )
+    }
+
+    // Inventory and Delivery Challans only for superusers
+    if (currentUser?.role === 'superuser') {
+      baseItems.push(
+        { text: 'Inventory', icon: <Storage />, href: '/dashboard/inventory' },
+        { text: 'Delivery Challans', icon: <LocalShipping />, href: '/dashboard/delivery-challans' },
       )
     }
 
@@ -250,13 +260,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const getDamageItems = () => {
     const items = []
     
-    // All users who can scan can report damage
-    if (currentUser && ['scanner', 'supervisor', 'superuser'].includes(currentUser.role)) {
-      items.push({ text: 'Report Damage', icon: <Warning />, href: '/dashboard/damage' })
-    }
-    
-    // Supervisors and super users can create add-ons
+    // Only supervisors and super users can report damage and create add-ons
     if (currentUser && ['supervisor', 'superuser'].includes(currentUser.role)) {
+      items.push({ text: 'Report Damage', icon: <Warning />, href: '/dashboard/damage' })
       items.push({ text: 'Add-ons', icon: <Add />, href: '/dashboard/add-ons' })
     }
     
@@ -338,8 +344,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             )
           })}
 
-          {/* Damage Section - All users who can scan */}
-          {currentUser && ['scanner', 'supervisor', 'superuser'].includes(currentUser.role) && sidebarOpen && getDamageItems().length > 0 && (
+          {/* Damage Section - Supervisor+ only */}
+          {currentUser && ['supervisor', 'superuser'].includes(currentUser.role) && sidebarOpen && getDamageItems().length > 0 && (
             <>
               <ListItem disablePadding>
                 <ListItemButton 
@@ -676,6 +682,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 1 }}>
+
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Typography variant="subtitle1" fontWeight="medium">

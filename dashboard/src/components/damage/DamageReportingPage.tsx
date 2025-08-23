@@ -90,11 +90,17 @@ export default function DamageReportingPage() {
             }
 
             // Get user profile
-            const { data: profile } = await supabase
+            const { data: profile, error: profileError } = await supabase
                 .from('users')
                 .select('*')
                 .eq('email', user.email)
                 .single();
+
+            if (profileError) {
+                console.error('Error loading user profile:', profileError);
+                setError('User profile not found. Please contact an administrator.');
+                return;
+            }
 
             setCurrentUser(profile);
 

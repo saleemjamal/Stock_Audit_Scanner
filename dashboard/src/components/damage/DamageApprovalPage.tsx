@@ -14,12 +14,14 @@ import {
     DialogContent,
     DialogActions,
     TextField,
-    FormControlLabel,
-    Switch,
     Chip,
     ImageList,
     ImageListItem,
     Alert,
+    Select,
+    MenuItem,
+    FormControl,
+    InputLabel,
     CircularProgress,
     Table,
     TableBody,
@@ -58,9 +60,7 @@ export default function DamageApprovalPage() {
     const [pendingReports, setPendingReports] = useState<PendingDamageReport[]>([]);
     const [selectedReport, setSelectedReport] = useState<PendingDamageReport | null>(null);
     const [reportImages, setReportImages] = useState<DamageImage[]>([]);
-    const [approvalDialog, setApprovalDialog] = useState(false);
     const [rejectionDialog, setRejectionDialog] = useState(false);
-    const [removeFromStock, setRemoveFromStock] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
     const [loading, setLoading] = useState(true);
     const [processing, setProcessing] = useState(false);
@@ -172,17 +172,18 @@ export default function DamageApprovalPage() {
         setProcessing(true);
         try {
             const { error } = await supabase
-                .rpc('approve_damage_report', {
-                    p_damage_id: selectedReport.damage_id,
-                    p_approved_by: currentUser.id,
-                    p_remove_from_stock: removeFromStock
-                });
+                .from('damaged_items')
+                .update({
+                    status: 'approved',
+                    approved_by: currentUser.id,
+                    approved_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', selectedReport.damage_id);
 
             if (error) throw error;
 
-            setApprovalDialog(false);
             setSelectedReport(null);
-            setRemoveFromStock(false);
             await loadPendingReports(currentUser.id);
             
             alert('Damage report approved successfully');
@@ -199,7 +200,8 @@ export default function DamageApprovalPage() {
 
         setProcessing(true);
         try {
-            const { error } = await supabase
+            // Update damage report as rejected (for audit trail and scanner action list)
+            const { error: updateError } = await supabase
                 .from('damaged_items')
                 .update({
                     status: 'rejected',
@@ -210,17 +212,17 @@ export default function DamageApprovalPage() {
                 })
                 .eq('id', selectedReport.damage_id);
 
-            if (error) throw error;
+            if (updateError) throw updateError;
 
             setRejectionDialog(false);
             setSelectedReport(null);
             setRejectionReason('');
             await loadPendingReports(currentUser.id);
             
-            alert('Damage report rejected');
+            alert('Damage rejected - Scanner should add this item to final rack as partial damage');
         } catch (error) {
-            console.error('Error rejecting report:', error);
-            alert('Failed to reject report');
+            console.error('Error rejecting damage:', error);
+            alert('Failed to reject damage report');
         } finally {
             setProcessing(false);
         }
@@ -389,7 +391,7 @@ export default function DamageApprovalPage() {
                     </Box>
 
                     {viewMode === 'list' ? (
-                        <TableContainer component={Paper}>
+                        <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
                             <Table size="small">
                                 <TableHead>
                                     <TableRow>
@@ -634,64 +636,34 @@ export default function DamageApprovalPage() {
                                 Reject
                             </Button>
                             <Button
-                                onClick={() => setApprovalDialog(true)}
+                                onClick={handleApprove}
                                 color="success"
                                 variant="contained"
-                                startIcon={<CheckCircle />}
+                                disabled={processing}
+                                startIcon={processing ? <CircularProgress size={16} /> : <CheckCircle />}
                             >
-                                Approve
+                                {processing ? 'Approving...' : 'Approve'}
                             </Button>
                         </DialogActions>
                     </>
                 )}
             </Dialog>
 
-            {/* Approval Dialog */}
-            <Dialog open={approvalDialog} onClose={() => setApprovalDialog(false)}>
-                <DialogTitle>Approve Damage Report</DialogTitle>
-                <DialogContent>
-                    <Typography gutterBottom>
-                        Are you sure you want to approve this damage report?
-                    </Typography>
-                    <FormControlLabel
-                        control={
-                            <Switch
-                                checked={removeFromStock}
-                                onChange={(e) => setRemoveFromStock(e.target.checked)}
-                            />
-                        }
-                        label="Remove from stock immediately"
-                        sx={{ mt: 2 }}
-                    />
-                    {removeFromStock && (
-                        <Alert severity="warning" sx={{ mt: 2 }}>
-                            This item will be marked as removed from stock and cannot be undone.
-                        </Alert>
-                    )}
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setApprovalDialog(false)}>Cancel</Button>
-                    <Button 
-                        onClick={handleApprove} 
-                        variant="contained" 
-                        disabled={processing}
-                        startIcon={processing ? <CircularProgress size={20} /> : undefined}
-                    >
-                        {processing ? 'Processing...' : 'Approve'}
-                    </Button>
-                </DialogActions>
-            </Dialog>
 
             {/* Rejection Dialog */}
-            <Dialog open={rejectionDialog} onClose={() => setRejectionDialog(false)}>
+            <Dialog open={rejectionDialog} onClose={() => setRejectionDialog(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>Reject Damage Report</DialogTitle>
                 <DialogContent>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        Rejected items should be added to the final rack by a scanner as partial damage.
+                    </Alert>
+
                     <TextField
                         fullWidth
                         multiline
                         rows={4}
                         label="Rejection Reason"
-                        placeholder="Please provide a reason for rejecting this damage report..."
+                        placeholder="Why is this damage report being rejected? (e.g., item is sellable with minor issues, return to distributor, etc.)"
                         value={rejectionReason}
                         onChange={(e) => setRejectionReason(e.target.value)}
                         required
@@ -707,7 +679,7 @@ export default function DamageApprovalPage() {
                         disabled={!rejectionReason.trim() || processing}
                         startIcon={processing ? <CircularProgress size={20} /> : undefined}
                     >
-                        {processing ? 'Processing...' : 'Reject Report'}
+                        {processing ? 'Rejecting...' : 'Reject Damage Report'}
                     </Button>
                 </DialogActions>
             </Dialog>

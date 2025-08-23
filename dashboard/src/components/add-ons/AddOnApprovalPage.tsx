@@ -295,7 +295,7 @@ export default function AddOnApprovalPage({ currentUser }: AddOnApprovalPageProp
       {/* Add-Ons Table */}
       <Card>
         <CardContent>
-          <TableContainer component={Paper} variant="outlined">
+          <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
             <Table>
               <TableHead>
                 <TableRow>

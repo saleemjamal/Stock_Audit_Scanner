@@ -14,6 +14,7 @@ import {
   Snackbar,
   InputAdornment,
   FormHelperText,
+  CircularProgress,
 } from '@mui/material'
 import {
   Add,
@@ -39,6 +40,8 @@ interface AddOnFormData {
 export default function AddOnsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [activeSession, setActiveSession] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [accessError, setAccessError] = useState<string | null>(null)
   const [formData, setFormData] = useState<AddOnFormData>({
     brand: '',
     item_name: '',
@@ -67,13 +70,22 @@ export default function AddOnsPage() {
     try {
       // Get current user
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
+      if (!session) {
+        setAccessError('Authentication required')
+        return
+      }
 
       const { data: userProfile } = await supabase
         .from('users')
         .select('*')
         .eq('email', session.user.email)
         .single()
+
+      // Check if user has supervisor+ access
+      if (!['supervisor', 'superuser'].includes(userProfile?.role)) {
+        setAccessError('Access denied. Add-ons management is only available to supervisors and super users.')
+        return
+      }
 
       setCurrentUser(userProfile)
 
@@ -87,6 +99,9 @@ export default function AddOnsPage() {
       setActiveSession(session_data)
     } catch (error) {
       console.error('Error loading user/session:', error)
+      setAccessError('Error loading user data')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -201,13 +216,21 @@ export default function AddOnsPage() {
     setShowCamera(false)
   }
 
-  if (!currentUser || currentUser.role === 'scanner') {
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+          <CircularProgress />
+        </Box>
+      </DashboardLayout>
+    )
+  }
+
+  if (accessError) {
     return (
       <DashboardLayout>
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-          <Alert severity="warning">
-            Only supervisors and super users can create add-on requests.
-          </Alert>
+          <Alert severity="error">{accessError}</Alert>
         </Container>
       </DashboardLayout>
     )

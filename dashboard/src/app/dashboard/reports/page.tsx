@@ -54,12 +54,12 @@ import {
   Close,
   PhotoCamera,
   Inventory,
+  LocalShipping,
 } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import DashboardLayout from '@/components/DashboardLayout'
-import { BrandVarianceReport } from '@/components/reports/BrandVarianceReport'
-import { OverallVarianceReport } from '@/components/reports/OverallVarianceReport'
+import { DCItemsReport } from '@/components/reports/DCItemsReport'
 
 interface CompletedAuditSession {
   id: string
@@ -172,6 +172,7 @@ export default function ReportsPage() {
   const [damageReports, setDamageReports] = useState<DamageReport[]>([])
   const [selectedDamageSessionId, setSelectedDamageSessionId] = useState<string>('')
   const [loadingDamageReports, setLoadingDamageReports] = useState<boolean>(false)
+  const [damageStatusFilter, setDamageStatusFilter] = useState<string>('all')
   
   // State for add-on reports
   const [addOnReports, setAddOnReports] = useState<any[]>([])
@@ -354,10 +355,10 @@ export default function ReportsPage() {
         return
       }
 
-      // Create CSV content with single column of barcodes
+      // Create CSV content with single column of barcodes (format as text to prevent Excel e+ notation)
       const csvContent = [
         'barcode', // Header
-        ...scans.map(scan => scan.barcode)
+        ...scans.map(scan => `="${scan.barcode}"`)
       ].join('\n')
 
       // Find session info for filename
@@ -817,9 +818,9 @@ export default function ReportsPage() {
     }
   }
 
-  // Load sessions when switching to Racks, Damages, Add-Ons, Partial Damages, or Variance tabs
+  // Load sessions when switching to Racks, Damages, Add-Ons, Partial Damages, or DC Items tabs
   useEffect(() => {
-    if (activeTab === 1 || activeTab === 2 || activeTab === 3 || activeTab === 4 || activeTab === 5 || activeTab === 6) {
+    if (activeTab === 1 || activeTab === 2 || activeTab === 3 || activeTab === 4 || activeTab === 5) {
       loadSessionsForReports()
     }
   }, [activeTab])
@@ -1022,17 +1023,8 @@ export default function ReportsPage() {
               iconPosition="start"
             />
             <Tab 
-              label="Brand Variance" 
-              icon={<Assessment />} 
-              iconPosition="start"
-              disabled={userProfile?.role !== 'supervisor' && userProfile?.role !== 'superuser'}
-              sx={{ 
-                display: (userProfile?.role !== 'supervisor' && userProfile?.role !== 'superuser') ? 'none' : 'flex' 
-              }}
-            />
-            <Tab 
-              label="Overall Variance" 
-              icon={<Inventory />} 
+              label="DC Items" 
+              icon={<LocalShipping />} 
               iconPosition="start"
               disabled={userProfile?.role !== 'supervisor' && userProfile?.role !== 'superuser'}
               sx={{ 
@@ -1490,14 +1482,36 @@ export default function ReportsPage() {
                   </FormControl>
 
                   {selectedDamageSessionId && (
-                    <Button
-                      variant="contained"
-                      startIcon={<FileDownload />}
-                      onClick={() => exportDamageCSV(selectedDamageSessionId)}
-                      disabled={exporting || damageReports.length === 0}
-                    >
-                      Export CSV
-                    </Button>
+                    <>
+                      <FormControl sx={{ minWidth: 120 }}>
+                        <InputLabel>Status Filter</InputLabel>
+                        <Select
+                          value={damageStatusFilter}
+                          onChange={(e) => setDamageStatusFilter(e.target.value)}
+                          label="Status Filter"
+                        >
+                          <MenuItem value="all">All</MenuItem>
+                          <MenuItem value="pending">Pending</MenuItem>
+                          <MenuItem value="approved">Approved</MenuItem>
+                          <MenuItem value="rejected">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Warning color="error" fontSize="small" />
+                              Rejected (For Re-scan)
+                            </Box>
+                          </MenuItem>
+                        </Select>
+                      </FormControl>
+                      <Button
+                        variant="contained"
+                        startIcon={<FileDownload />}
+                        onClick={() => exportDamageCSV(selectedDamageSessionId)}
+                        disabled={exporting || damageReports.filter(r => 
+                          damageStatusFilter === 'all' || r.status === damageStatusFilter
+                        ).length === 0}
+                      >
+                        Export CSV
+                      </Button>
+                    </>
                   )}
                 </Box>
               </CardContent>
@@ -1508,7 +1522,14 @@ export default function ReportsPage() {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
-                    Damage Reports ({damageReports.length})
+                    Damage Reports ({damageReports.filter(r => 
+                      damageStatusFilter === 'all' || r.status === damageStatusFilter
+                    ).length} of {damageReports.length})
+                    {damageStatusFilter === 'rejected' && (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        These rejected items should be scanned into the final rack as partial damages
+                      </Alert>
+                    )}
                   </Typography>
                   
                   {damageReports.length > 0 && (
@@ -1555,16 +1576,22 @@ export default function ReportsPage() {
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {damageReports.length === 0 ? (
+                          {damageReports.filter(r => 
+                            damageStatusFilter === 'all' || r.status === damageStatusFilter
+                          ).length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={7} align="center">
                                 <Typography color="text.secondary" sx={{ py: 4 }}>
-                                  No damage reports found for this session
+                                  {damageStatusFilter === 'rejected' 
+                                    ? 'No rejected damage reports found - all damage reports have been processed'
+                                    : 'No damage reports found for this filter'}
                                 </Typography>
                               </TableCell>
                             </TableRow>
                           ) : (
-                            damageReports.map((report) => (
+                            damageReports
+                              .filter(r => damageStatusFilter === 'all' || r.status === damageStatusFilter)
+                              .map((report) => (
                               <TableRow key={report.id} hover>
                                 <TableCell>
                                   <Typography variant="body2" fontWeight="bold" fontFamily="monospace">
@@ -2020,14 +2047,9 @@ export default function ReportsPage() {
           </>
         )}
 
-        {/* Tab Panel 5: Brand Variance - Only for Supervisor and Super User */}
+        {/* Tab Panel 5: DC Items Report - Only for Supervisor and Super User */}
         {(userProfile?.role === 'supervisor' || userProfile?.role === 'superuser') && activeTab === 5 && (
-          <BrandVarianceReport userRole={userProfile?.role || ''} />
-        )}
-
-        {/* Tab Panel 6: Overall Variance - Only for Supervisor and Super User */}
-        {(userProfile?.role === 'supervisor' || userProfile?.role === 'superuser') && activeTab === 6 && (
-          <OverallVarianceReport userRole={userProfile?.role || ''} />
+          <DCItemsReport />
         )}
 
         {/* Photo Viewing Modal */}

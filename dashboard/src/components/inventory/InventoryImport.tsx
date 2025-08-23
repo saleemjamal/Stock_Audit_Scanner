@@ -27,6 +27,7 @@ interface InventoryImportProps {
 export function InventoryImport({ locationId, userRole, onImportComplete }: InventoryImportProps) {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{current: number, total: number} | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -38,7 +39,14 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
     const file = event.target.files?.[0];
     if (!file) return;
     
+    // Check file size and warn for large files
+    const fileSizeMB = file.size / (1024 * 1024);
+    if (fileSizeMB > 5) {
+      console.log(`Large file detected: ${fileSizeMB.toFixed(1)}MB`);
+    }
+
     setUploading(true);
+    setUploadProgress(null);
     setError(null);
     setSuccess(null);
     setValidationErrors([]);
@@ -56,13 +64,15 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
       const result = await response.json();
       
       if (response.ok) {
-        setSuccess(result.message || `Successfully imported ${result.imported} items`);
+        const message = result.message || `Successfully imported ${result.imported} items`;
+        const details = result.duplicatesFound > 0 ? ` (Processed ${result.totalBatches} batches, resolved ${result.duplicatesFound} duplicates)` : ` (Processed ${result.totalBatches} batches)`;
+        setSuccess(message + details);
         onImportComplete?.();
-        // Auto close after 3 seconds
+        // Auto close after 5 seconds for large uploads
         setTimeout(() => {
           setOpen(false);
           setSuccess(null);
-        }, 3000);
+        }, 5000);
       } else {
         setError(result.error || 'Import failed');
         if (result.details && Array.isArray(result.details)) {
@@ -73,6 +83,7 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
       setError('Network error during upload');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
       // Reset file input
       if (event.target) {
         event.target.value = '';
@@ -86,6 +97,7 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
       setError(null);
       setSuccess(null);
       setValidationErrors([]);
+      setUploadProgress(null);
     }
   };
   
@@ -115,15 +127,18 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
               <Chip label="item_code" size="small" variant="outlined" />
+              <Chip label="barcode" size="small" variant="outlined" color="primary" />
               <Chip label="brand" size="small" variant="outlined" />
               <Chip label="item_name" size="small" variant="outlined" />
               <Chip label="expected_quantity" size="small" variant="outlined" />
               <Chip label="unit_cost" size="small" variant="outlined" />
             </Box>
             <Typography variant="caption" color="text.secondary">
-              • item_code must be exactly 5 digits<br/>
+              • item_code must be exactly 5 characters<br/>
+              • barcode is required (any length)<br/>
               • Maximum file size: 10MB<br/>
-              • Duplicate item codes will be updated
+              • Large files (&gt;5MB/10K+ items) may take longer to process<br/>
+              • Duplicate barcodes for same location will be updated
             </Typography>
           </Alert>
 
@@ -142,9 +157,10 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
                 borderRadius: 1
               }}
             >
-              item_code,brand,item_name,expected_quantity,unit_cost<br/>
-              12345,Nike,Air Max 90,25,8999.00<br/>
-              23456,Adidas,Stan Smith,20,6999.00
+              item_code,barcode,brand,item_name,expected_quantity,unit_cost<br/>
+              12345,123456789012,Nike,Air Max 90,25,8999.00<br/>
+              12345,123456789013,Nike,Air Max 90 Box,5,89990.00<br/>
+              23456,234567890123,Adidas,Stan Smith,20,6999.00
             </Typography>
           </Alert>
           
@@ -220,8 +236,11 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
           {uploading && (
             <Box sx={{ mt: 2 }}>
               <LinearProgress />
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                 Processing CSV file...
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Large files may take 30-60 seconds. Please wait...
               </Typography>
             </Box>
           )}

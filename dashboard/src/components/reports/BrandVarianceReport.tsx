@@ -30,13 +30,13 @@ import {
   TrendingUp,
   TrendingDown,
   Assessment,
-  CloudUpload,
   ErrorOutline,
   CheckCircle,
+  Inventory2,
 } from '@mui/icons-material';
 import { createClient } from '@/lib/supabase';
 import { BrandDetailDialog } from './BrandDetailDialog';
-import { InventoryImport } from '../inventory/InventoryImport';
+import { useRouter } from 'next/navigation';
 
 interface BrandVariance {
   brand: string;
@@ -89,6 +89,7 @@ export function BrandVarianceReport({ userRole }: BrandVarianceReportProps) {
   const [selectedBrand, setSelectedBrand] = useState<string>('');
 
   const supabase = createClient();
+  const router = useRouter();
 
   // Add useEffect hooks here, before any conditional returns
   useEffect(() => {
@@ -252,16 +253,15 @@ export function BrandVarianceReport({ userRole }: BrandVarianceReportProps) {
               <Assessment color="primary" />
               <Typography variant="h6">Brand Variance Analysis</Typography>
             </Box>
-            {userRole === 'superuser' && selectedSession && !hasInventory && (
-              <InventoryImport
-                locationId={selectedSession.location_id}
-                userRole={userRole}
-                onImportComplete={() => {
-                  checkInventoryForSession();
-                  setData([]); // Clear existing data
-                  setSummary(null); // Clear summary
-                }}
-              />
+            {selectedSession && !hasInventory && (
+              <Button
+                variant="outlined"
+                startIcon={<Inventory2 />}
+                onClick={() => router.push('/dashboard/inventory')}
+                size="small"
+              >
+                Import Inventory Data
+              </Button>
             )}
           </Box>
 
@@ -328,7 +328,7 @@ export function BrandVarianceReport({ userRole }: BrandVarianceReportProps) {
                 >
                   <Typography variant="body2">
                     <strong>No inventory data found</strong><br/>
-                    Import expected inventory to enable variance analysis.
+                    Go to the Inventory page to import expected inventory data and enable variance analysis.
                     {userRole !== 'superuser' && ' Contact your Super User to import inventory data.'}
                   </Typography>
                 </Alert>
@@ -401,7 +401,7 @@ export function BrandVarianceReport({ userRole }: BrandVarianceReportProps) {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Showing top {data.length} brands by variance value:
               </Typography>
-              <TableContainer component={Paper} variant="outlined">
+              <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
               <Table>
                 <TableHead>
                   <TableRow>

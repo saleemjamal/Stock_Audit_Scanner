@@ -160,6 +160,30 @@ export default function WebScanner({
   const inputRef = useRef<HTMLInputElement>(null)
   const sessionStartTime = useRef(Date.now())
 
+  // Load existing scan count for this rack on mount
+  useEffect(() => {
+    const loadExistingScans = async () => {
+      try {
+        const { count, error } = await createClient()
+          .from('scans')
+          .select('*', { count: 'exact', head: true })
+          .eq('rack_id', rackId)
+          .eq('audit_session_id', auditSessionId)
+        
+        if (error) {
+          console.error('Error loading existing scans:', error)
+          return
+        }
+
+        setSessionStats(prev => ({ ...prev, totalScans: count || 0 }))
+      } catch (error) {
+        console.error('Error loading existing scans:', error)
+      }
+    }
+    
+    loadExistingScans()
+  }, [rackId, auditSessionId])
+
   useEffect(() => {
     // Auto-focus on mount and maintain focus
     const focusInput = () => {
@@ -327,6 +351,29 @@ export default function WebScanner({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
+      {/* Large Scan Count Badge */}
+      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+        <Chip
+          icon={<Assignment />}
+          label={`${sessionStats.totalScans} Items Scanned`}
+          color="primary"
+          variant="filled"
+          sx={{
+            fontSize: '1.2rem',
+            padding: '12px 16px',
+            height: 'auto',
+            '& .MuiChip-label': {
+              fontSize: '1.2rem',
+              fontWeight: 'bold',
+              paddingX: 2
+            },
+            '& .MuiChip-icon': {
+              fontSize: '1.5rem'
+            }
+          }}
+        />
+      </Box>
+
       {/* Scanner Input */}
       <Card>
         <CardContent>

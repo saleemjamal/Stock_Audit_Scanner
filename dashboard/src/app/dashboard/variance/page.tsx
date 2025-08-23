@@ -1,17 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Box, Container, Typography, Alert } from '@mui/material';
+import { Box, Container, Typography, Alert, Tabs, Tab, Card } from '@mui/material';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import DashboardLayout from '@/components/DashboardLayout';
 import { BrandVarianceReport } from '@/components/reports/BrandVarianceReport';
-import { Assessment } from '@mui/icons-material';
+import { OverallVarianceReport } from '@/components/reports/OverallVarianceReport';
+import { Assessment, TrendingUp, Analytics } from '@mui/icons-material';
 
-export default function BrandVariancePage() {
+export default function VariancePage() {
   const router = useRouter();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentTab, setCurrentTab] = useState(0);
   const supabase = createClient();
 
   useEffect(() => {
@@ -57,6 +59,21 @@ export default function BrandVariancePage() {
     }
   };
 
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setCurrentTab(newValue);
+  };
+
+  const renderTabContent = () => {
+    switch (currentTab) {
+      case 0:
+        return <BrandVarianceReport userRole={userProfile.role} />;
+      case 1:
+        return <OverallVarianceReport userRole={userProfile.role} />;
+      default:
+        return null;
+    }
+  };
+
   if (isLoading) {
     return (
       <DashboardLayout>
@@ -79,7 +96,7 @@ export default function BrandVariancePage() {
       <DashboardLayout>
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
           <Alert severity="error">
-            Access denied. Brand Variance analysis is only available to Supervisors and Super Users.
+            Access denied. Variance analysis is only available to Supervisors and Super Users.
           </Alert>
         </Container>
       </DashboardLayout>
@@ -93,7 +110,7 @@ export default function BrandVariancePage() {
           <Assessment color="primary" sx={{ fontSize: 40 }} />
           <Box>
             <Typography variant="h4" component="h1" gutterBottom sx={{ mb: 0 }}>
-              Brand Variance Analysis
+              Variance Analysis
             </Typography>
             <Typography variant="body1" color="text.secondary">
               Compare expected inventory against actual scan counts to identify overages, shortages, and missing items
@@ -101,7 +118,39 @@ export default function BrandVariancePage() {
           </Box>
         </Box>
 
-        <BrandVarianceReport userRole={userProfile.role} />
+        {/* Tabs */}
+        <Card sx={{ mb: 3 }}>
+          <Tabs 
+            value={currentTab} 
+            onChange={handleTabChange}
+            variant="fullWidth"
+            sx={{ 
+              borderBottom: 1, 
+              borderColor: 'divider',
+              '& .MuiTab-root': {
+                minHeight: 60,
+                textTransform: 'none',
+                fontSize: '1rem',
+              }
+            }}
+          >
+            <Tab 
+              label="Brand Variance"
+              icon={<TrendingUp />}
+              iconPosition="start"
+              value={0}
+            />
+            <Tab 
+              label="Overall Variance"
+              icon={<Analytics />}
+              iconPosition="start"
+              value={1}
+            />
+          </Tabs>
+        </Card>
+
+        {/* Tab Content */}
+        {renderTabContent()}
       </Container>
     </DashboardLayout>
   );

@@ -441,6 +441,40 @@ export default function ScanningPage() {
     }
   }
 
+  const handleRestartRack = async () => {
+    if (!selectedRack) return
+    
+    // Confirm restart
+    if (!window.confirm('Are you sure you want to restart this rack? This will delete all existing scans but keep the rack assigned to you.')) {
+      return
+    }
+
+    try {
+      // Delete all scans for this rack
+      const { error: deleteError } = await supabase
+        .from('scans')
+        .delete()
+        .eq('rack_id', selectedRack.id)
+        .eq('audit_session_id', activeSession?.id)
+
+      if (deleteError) throw deleteError
+
+      // Reset WebScanner state by reloading the page component
+      setError(null)
+      
+      // Force refresh of the scanner component by clearing and resetting the rack
+      const tempRack = selectedRack
+      setSelectedRack(null)
+      setTimeout(() => {
+        setSelectedRack(tempRack)
+      }, 100)
+      
+    } catch (error: any) {
+      console.error('Error restarting rack:', error)
+      setError('Failed to restart rack. Please try again.')
+    }
+  }
+
   const handleRackBarcodeScanned = async (rackBarcode: string) => {
     if (!activeSession || !currentUser) {
       setError('Missing session or user information')
@@ -645,15 +679,26 @@ export default function ScanningPage() {
                             >
                               Review & Submit
                             </Button>
-                            <Button
-                              variant="outlined"
-                              color="error"
-                              onClick={handleAbandonRack}
-                              size="small"
-                              fullWidth
-                            >
-                              Abandon Rack
-                            </Button>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Button
+                                variant="outlined"
+                                color="warning"
+                                onClick={handleRestartRack}
+                                size="small"
+                                sx={{ flex: 1 }}
+                              >
+                                Restart Rack
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={handleAbandonRack}
+                                size="small"
+                                sx={{ flex: 1 }}
+                              >
+                                Abandon Rack
+                              </Button>
+                            </Box>
                           </Box>
                         </Card>
                       </Box>

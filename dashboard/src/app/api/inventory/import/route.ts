@@ -5,6 +5,7 @@ import Papa from 'papaparse';
 interface InventoryItem {
   location_id: string;
   item_code: string;
+  barcode: string;
   brand: string;
   item_name: string;
   expected_quantity: number;
@@ -73,14 +74,16 @@ export async function POST(request: NextRequest) {
     }
     
     // Validate and transform data
-    const inventoryItems: InventoryItem[] = [];
+    const inventoryItemsMap = new Map<string, InventoryItem>(); // Use Map for O(1) duplicate handling
     const validationErrors: string[] = [];
+    let duplicateCount = 0;
 
     (data as any[]).forEach((row: any, index: number) => {
       const rowNum = index + 2; // +2 because index starts at 0 and we have a header row
 
       // Check required fields
       const itemCode = row.item_code || row['item code'] || '';
+      const barcode = row.barcode || '';
       const brand = row.brand || '';
       const itemName = row.item_name || row['item name'] || '';
       const expectedQty = row.expected_quantity || row['expected qty'] || row['expected_qty'] || '0';
@@ -88,6 +91,10 @@ export async function POST(request: NextRequest) {
 
       if (!itemCode) {
         validationErrors.push(`Row ${rowNum}: Missing item_code`);
+        return;
+      }
+      if (!barcode) {
+        validationErrors.push(`Row ${rowNum}: Missing barcode`);
         return;
       }
       if (!brand) {
@@ -99,9 +106,15 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      // Validate item code is 5 digits
-      if (!/^\d{5}$/.test(itemCode)) {
-        validationErrors.push(`Row ${rowNum}: item_code must be exactly 5 digits`);
+      // Validate item code is 5 characters
+      if (itemCode.length !== 5) {
+        validationErrors.push(`Row ${rowNum}: item_code must be exactly 5 characters`);
+        return;
+      }
+
+      // Validate barcode exists (no length requirement)
+      if (!barcode.trim()) {
+        validationErrors.push(`Row ${rowNum}: barcode cannot be empty`);
         return;
       }
 
@@ -118,14 +131,25 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      inventoryItems.push({
+      // Handle duplicates efficiently with Map
+      const barcodeKey = `${locationId}-${barcode.trim()}`;
+      const newItem: InventoryItem = {
         location_id: locationId,
-        item_code: itemCode,
+        item_code: itemCode.trim(),
+        barcode: barcode.trim(),
         brand: brand.trim(),
         item_name: itemName.trim(),
         expected_quantity: parsedQty,
         unit_cost: parsedCost
-      });
+      };
+
+      if (inventoryItemsMap.has(barcodeKey)) {
+        duplicateCount++;
+        console.warn(`Duplicate barcode ${barcode} found at row ${rowNum}, keeping latest`);
+      }
+      
+      // Always set/overwrite - keeps last occurrence
+      inventoryItemsMap.set(barcodeKey, newItem);
     });
 
     if (validationErrors.length > 0) {
@@ -135,13 +159,19 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Convert Map to Array
+    const inventoryItems = Array.from(inventoryItemsMap.values());
+    
     if (inventoryItems.length === 0) {
       return NextResponse.json({ error: 'No valid inventory items found' }, { status: 400 });
     }
     
-    // Upsert in batches of 500
-    const batchSize = 500;
+    // Dynamic batch size based on data size
+    const dataSize = inventoryItems.length;
+    const batchSize = dataSize > 10000 ? 5000 : dataSize > 5000 ? 2000 : 1000;
     let totalInserted = 0;
+    
+    console.log(`Processing ${dataSize} items in batches of ${batchSize}`);
     
     for (let i = 0; i < inventoryItems.length; i += batchSize) {
       const batch = inventoryItems.slice(i, i + batchSize);
@@ -149,17 +179,24 @@ export async function POST(request: NextRequest) {
       const { data: insertResult, error: insertError } = await supabase
         .from('inventory_items')
         .upsert(batch, { 
-          onConflict: 'location_id,item_code',
+          onConflict: 'location_id,barcode',
           ignoreDuplicates: false 
         })
         .select('id');
         
       if (insertError) {
-        console.error('Database insert failed:', insertError);
+        console.error(`Database insert failed at batch ${Math.floor(i/batchSize) + 1}:`, insertError);
+        console.error('Failed batch sample:', JSON.stringify(batch.slice(0, 3), null, 2));
+        console.error('Full error details:', JSON.stringify(insertError, null, 2));
         return NextResponse.json({ 
           error: 'Database insert failed', 
           details: insertError.message,
-          failedAtRow: i + 1 
+          errorCode: insertError.code,
+          errorHint: insertError.hint,
+          failedAtBatch: Math.floor(i/batchSize) + 1,
+          failedAtRow: i + 1,
+          totalBatches: Math.ceil(inventoryItems.length / batchSize),
+          batchSample: batch.slice(0, 2) // First 2 items for debugging
         }, { status: 500 });
       }
 
@@ -169,7 +206,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       imported: totalInserted,
-      message: `Successfully imported ${totalInserted} inventory items`
+      duplicatesFound: duplicateCount,
+      batchSize: batchSize,
+      totalBatches: Math.ceil(inventoryItems.length / batchSize),
+      message: `Successfully imported ${totalInserted} inventory items${duplicateCount > 0 ? ` (${duplicateCount} duplicates resolved)` : ''}`
     });
 
   } catch (error) {
