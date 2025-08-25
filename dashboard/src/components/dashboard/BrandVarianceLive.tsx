@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import { Refresh, TrendingUp, TrendingDown, Assessment, ErrorOutline } from '@mui/icons-material';
 import { createClient } from '@/lib/supabase';
+import { useFilters, filterBrandVariance } from '@/contexts/FilterContext';
 
 interface BrandVariance {
   brand: string;
@@ -32,12 +33,16 @@ interface BrandVarianceLiveProps {
 
 export function BrandVarianceLive({ sessionId, userRole }: BrandVarianceLiveProps) {
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<BrandVariance[]>([]);
+  const [allData, setAllData] = useState<BrandVariance[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasInventory, setHasInventory] = useState<boolean | null>(null);
+  const { filters } = useFilters();
 
   const supabase = createClient();
+
+  // Apply filters to the data
+  const data = filterBrandVariance(allData, filters);
 
   const checkInventoryData = async () => {
     if (!sessionId) return;
@@ -86,7 +91,7 @@ export function BrandVarianceLive({ sessionId, userRole }: BrandVarianceLiveProp
       
       if (error) throw error;
       
-      setData(varianceData || []);
+      setAllData(varianceData || []);
       setLastUpdated(new Date());
     } catch (error) {
       console.error('Failed to fetch variance:', error);

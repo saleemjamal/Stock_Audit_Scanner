@@ -25,6 +25,7 @@ import {
 import { createClient } from '@/lib/supabase'
 import { ScanningStatsDialog } from './ScanningStatsDialog'
 import { ScannerDetailDialog } from './ScannerDetailDialog'
+import { useFilters, filterScanners } from '@/contexts/FilterContext'
 
 interface ScannerInfo {
   id: string
@@ -46,8 +47,12 @@ interface ScannerStats {
 }
 
 export default function ScannerStatus() {
-  const [scanners, setScanners] = useState<ScannerInfo[]>([])
+  const [allScanners, setAllScanners] = useState<ScannerInfo[]>([])
   const [stats, setStats] = useState<ScannerStats>({ total_scans_per_hour: 0, average_scans_per_hour: 0 })
+  const { filters } = useFilters()
+
+  // Apply filters to scanners
+  const scanners = filterScanners(allScanners, filters)
   const [loading, setLoading] = useState(true)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [overallStatsOpen, setOverallStatsOpen] = useState(false)
@@ -96,7 +101,7 @@ export default function ScannerStatus() {
         .single()
 
       if (!activeSession) {
-        setScanners([])
+        setAllScanners([])
         setActiveSessionId(null)
         setLoading(false)
         return
@@ -113,7 +118,7 @@ export default function ScannerStatus() {
         .contains('location_ids', [activeSession.location_id])
 
       if (!activeUsers) {
-        setScanners([])
+        setAllScanners([])
         setLoading(false)
         return
       }
@@ -253,7 +258,7 @@ export default function ScannerStatus() {
         ? Math.round(totalScansPerHour / activeScannersWithScans.length) 
         : 0
 
-      setScanners(scannerData)
+      setAllScanners(scannerData)
       setStats({
         total_scans_per_hour: totalScansPerHour,
         average_scans_per_hour: averageScansPerHour
@@ -317,10 +322,17 @@ export default function ScannerStatus() {
   return (
     <Card>
       <CardContent>
-        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <TrendingUp />
-          Scanning Stats
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TrendingUp />
+            Scanning Stats
+          </Typography>
+          {!loading && (
+            <Typography variant="body2" color="text.secondary">
+              {scanners.length} of {allScanners.length} scanners
+            </Typography>
+          )}
+        </Box>
         
         {scanners.length > 0 && (
           <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
@@ -449,6 +461,14 @@ export default function ScannerStatus() {
               </ListItem>
             ))}
           </List>
+        )}
+        
+        {allScanners.length > 0 && scanners.length === 0 && (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">
+              No scanners match the current filters. Try adjusting your filter criteria.
+            </Typography>
+          </Box>
         )}
       </CardContent>
       

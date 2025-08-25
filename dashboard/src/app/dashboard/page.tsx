@@ -10,13 +10,17 @@ import RackMap from '@/components/RackMap'
 import ScannerStatus from '@/components/ScannerStatus'
 import PendingApprovals from '@/components/PendingApprovals'
 import { BrandVarianceLive } from '@/components/dashboard/BrandVarianceLive'
+import FilterBar from '@/components/FilterBar'
+import { FilterProvider, useFilters } from '@/contexts/FilterContext'
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [activeSessionId, setActiveSessionId] = useState<string | undefined>(undefined)
+  const [availableBrands, setAvailableBrands] = useState<string[]>([])
   const supabase = createClient()
+  const { filters, setFilters } = useFilters()
 
   useEffect(() => {
     checkAuth()
@@ -89,11 +93,32 @@ export default function DashboardPage() {
         .single()
 
       setActiveSessionId(activeSession?.id)
+      
+      // Load available brands for filtering
+      if (activeSession?.id) {
+        loadAvailableBrands(activeSession.id)
+      }
     } catch (error) {
       console.error('Auth check error:', error)
       router.push('/auth/login')
     } finally {
       setIsLoading(false)
+    }
+  }
+  
+  const loadAvailableBrands = async (sessionId: string) => {
+    try {
+      const { data: brandData } = await supabase
+        .from('inventory_items')
+        .select('brand')
+        .not('brand', 'is', null)
+        
+      if (brandData) {
+        const uniqueBrands = Array.from(new Set(brandData.map(item => item.brand))).sort()
+        setAvailableBrands(uniqueBrands)
+      }
+    } catch (error) {
+      console.error('Error loading brands:', error)
     }
   }
 
@@ -122,6 +147,17 @@ export default function DashboardPage() {
             <KPIOverview />
           </Suspense>
         </Box>
+
+        {/* Filter Bar */}
+        <FilterBar
+          filters={filters}
+          onFiltersChange={setFilters}
+          availableBrands={availableBrands}
+          showRackFilters={true}
+          showScannerFilters={true}
+          showBrandFilters={(currentUser?.role === 'supervisor' || currentUser?.role === 'superuser')}
+          showSearch={true}
+        />
 
         <Grid container spacing={3}>
           {/* Action Row - Scanner Status, Pending Approvals, and Brand Variance */}
@@ -158,5 +194,13 @@ export default function DashboardPage() {
         </Grid>
       </Box>
     </DashboardLayout>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <FilterProvider>
+      <DashboardContent />
+    </FilterProvider>
   )
 }

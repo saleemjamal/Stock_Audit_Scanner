@@ -21,6 +21,7 @@ import {
   Visibility,
 } from '@mui/icons-material'
 import { createClient } from '@/lib/supabase'
+import { useFilters, filterRacks } from '@/contexts/FilterContext'
 
 interface Rack {
   id: string
@@ -37,9 +38,13 @@ interface Rack {
 }
 
 export default function RackMap() {
-  const [racks, setRacks] = useState<Rack[]>([])
+  const [allRacks, setAllRacks] = useState<Rack[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+  const { filters } = useFilters()
+
+  // Apply filters to the racks
+  const racks = filterRacks(allRacks, filters)
 
   useEffect(() => {
     loadRacks()
@@ -60,7 +65,7 @@ export default function RackMap() {
 
       if (!activeSession) {
         console.log('No active session found')
-        setRacks([])
+        setAllRacks([])
         setLoading(false)
         return
       }
@@ -86,7 +91,7 @@ export default function RackMap() {
 
       if (racksData) {
         console.log('Setting racks:', racksData.length)
-        setRacks(racksData.map(rack => ({
+        setAllRacks(racksData.map(rack => ({
           ...rack,
           audit_sessions: { shortname: activeSession.shortname }
         })))
@@ -180,10 +185,15 @@ export default function RackMap() {
   return (
     <Card>
       <CardContent>
-        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Assignment />
-          Rack Status Map
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Assignment />
+            Rack Status Map
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {racks.length} of {allRacks.length} racks
+          </Typography>
+        </Box>
         
         {/* Status Legend */}
         <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -248,13 +258,19 @@ export default function RackMap() {
           ))}
         </Grid>
         
-        {racks.length === 0 && (
+        {allRacks.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Typography color="text.secondary">
               No racks found. Create an audit session to generate racks.
             </Typography>
           </Box>
-        )}
+        ) : racks.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">
+              No racks match the current filters. Try adjusting your filter criteria.
+            </Typography>
+          </Box>
+        ) : null}
       </CardContent>
     </Card>
   )

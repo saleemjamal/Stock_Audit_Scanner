@@ -17,6 +17,9 @@ npm run lint        # ESLint
 npm run type-check  # TypeScript checking
 ```
 
+## Dependencies
+- `xlsx` - Excel file parsing for inventory import
+
 ## Architecture
 
 ### Dashboard Structure
@@ -71,7 +74,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 - **Brand Variance Analysis** - Real-time variance by brand (top 20)
 - **Overall Variance Reports** - Comprehensive item-level variance analysis
 - **Advanced Reports** - 6 report types with CSV export
-- **Inventory Management** - CSV import for expected quantities and costs
+- **Inventory Management** - CSV/Excel import for expected quantities and costs (preserves barcode precision)
 - **Single Rack Focus** - One rack at a time
 - **Role-Based Access** - Platform restrictions
 - **Delivery Challan (DC)** - Track items temporarily out of stock during audit
@@ -192,10 +195,18 @@ VALUES (
 ```sql
 INSERT INTO inventory_items (location_id, item_code, barcode, brand, item_name, expected_quantity, unit_cost)
 VALUES 
-  (1, '12345', '123456789012', 'TestBrand', 'Sample Item 1', 10, 25.50),
-  (1, '12345', '123456789013', 'TestBrand', 'Sample Item 1 - Box', 5, 255.00),
-  (1, '12346', '123466789012', 'TestBrand', 'Sample Item 2', 15, 30.00);
+  (1, '12345', '123456789012345', 'TestBrand', 'Sample Item 1', 10, 25.50),
+  (1, '12345', '123456789012346', 'TestBrand', 'Sample Item 1 - Box', 5, 255.00),
+  (1, '12346', '234567890123456', 'TestBrand', 'Sample Item 2', 15, 30.00);
 ```
+
+### Inventory Import Features
+- **Supports CSV and Excel files** (.csv, .xlsx, .xls)
+- **Excel format preserves barcode precision** - No scientific notation issues
+- **Handles large files** - 52k-100k rows with batch processing
+- **Enhanced error reporting** - Detailed validation statistics and error breakdown
+- **5-minute timeout** - Processes large files without timing out
+- **Automatic duplicate handling** - Updates existing barcodes for same location
 
 ## Important Files
 - `docs/User_Workflows_Guide.md` - User workflows
@@ -232,6 +243,9 @@ VALUES
 - **Barcode Join**: Updated variance functions to use direct barcode join instead of SUBSTRING extraction
 
 ## Recent Updates
+- ✅ **Excel Import Support** - Import inventory from Excel files (.xlsx, .xls) preserving barcode precision
+- ✅ **Enhanced Import Error Logging** - Detailed validation statistics and debugging information
+- ✅ **Large File Support** - 5-minute timeout and batch processing for 52k-100k row files
 - ✅ **Mobile Responsive Tables** - All tables now mobile-friendly with card layouts
 - ✅ **Fixed IST Time Display** - Corrected hourly graphs to show proper Indian Standard Time
 - ✅ **Enhanced Approval Metrics** - Added approval throughput rate (time per rack)

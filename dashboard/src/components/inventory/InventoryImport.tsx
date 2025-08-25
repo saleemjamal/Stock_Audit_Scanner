@@ -75,8 +75,16 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
         }, 5000);
       } else {
         setError(result.error || 'Import failed');
+        // Handle both old and new error format
+        if (result.summary) {
+          setError(`${result.error}\n${result.summary}`);
+        }
         if (result.details && Array.isArray(result.details)) {
           setValidationErrors(result.details);
+        }
+        // Log stats for debugging
+        if (result.stats) {
+          console.log('Validation stats:', result.stats);
         }
       }
     } catch (err) {
@@ -137,6 +145,8 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
               • item_code must be exactly 5 characters<br/>
               • barcode is required (any length)<br/>
               • Maximum file size: 10MB<br/>
+              • Supports CSV and Excel files (.csv, .xlsx, .xls)<br/>
+              • Excel format preserves barcode precision<br/>
               • Large files (&gt;5MB/10K+ items) may take longer to process<br/>
               • Duplicate barcodes for same location will be updated
             </Typography>
@@ -213,7 +223,7 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
           {/* File Upload */}
           <input
             type="file"
-            accept=".csv"
+            accept=".csv,.xlsx,.xls"
             onChange={handleFileUpload}
             disabled={uploading}
             style={{ display: 'none' }}
@@ -229,7 +239,7 @@ export function InventoryImport({ locationId, userRole, onImportComplete }: Inve
               startIcon={<CloudUpload />}
               sx={{ py: 2 }}
             >
-              {uploading ? 'Uploading...' : 'Select CSV File'}
+              {uploading ? 'Uploading...' : 'Select CSV or Excel File'}
             </Button>
           </label>
           

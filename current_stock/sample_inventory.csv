@@ -1,0 +1,5 @@
+item_code,barcode,brand,item_name,expected_quantity,unit_cost
+12345,123456789012345,TestBrand,Sample Item 1,10,25.50
+12345,123456789012346,TestBrand,Sample Item 1 - Box,5,255.00
+23456,234567890123456,TestBrand,Sample Item 2,15,30.00
+34567,345678901234567,TestBrand,Sample Item 3,20,45.00

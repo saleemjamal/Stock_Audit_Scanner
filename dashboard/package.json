@@ -29,7 +29,8 @@
     "react-barcode": "^1.6.1",
     "react-dom": "^18.2.0",
     "recharts": "^2.10.3",
-    "swr": "^2.2.4"
+    "swr": "^2.2.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",
